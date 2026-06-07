@@ -1,0 +1,7 @@
+Product:   Zovly
+Tagline:   One platform. Every customer.
+Domain:    zovly.com
+API:       api.zovly.com
+Docs:      docs.zovly.com
+App:       app.zovly.com
+Status:    status.zovly.com
