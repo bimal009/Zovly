@@ -56,21 +56,18 @@ type RedisConfig struct {
 // 	Concurrency int `env:"ASYNQ_CONCURRENCY" envDefault:"10"`
 // }
 
-// type StripeConfig struct {
-// 	SecretKey      string `env:"STRIPE_SECRET_KEY,required"`
-// 	WebhookSecret  string `env:"STRIPE_WEBHOOK_SECRET,required"`
-// 	PublishableKey string `env:"STRIPE_PUBLISHABLE_KEY,required"`
-
-//		SuccessURL string `env:"STRIPE_SUCCESS_URL" envDefault:"https://www.tixort.com/payment/success"`
-//		CancelURL  string `env:"STRIPE_CANCEL_URL" envDefault:"https://www.tixort.com/payment/cancel"`
-//	}
+type PaddleConfig struct {
+	APISecret      string `env:"PADDLE_SECRET_KEY,required"`
+	WebhookSecret  string `env:"PADDLE_WEBHOOK_SECRET,required"`
+	ClientSecret string `env:"PADDLE_CLIENT_SECRET,required"`
+	}
 type Config struct {
 	App      App
 	DB       DB
 	Session  Session
 	OAuth    OAuthConfig
 	ImageKit ImageKit
-	// Stripe   StripeConfig
+	Paddle   PaddleConfig
 	Redis RedisConfig
 	// Resend   ResendConfig
 	// Asynq    AsynqConfig

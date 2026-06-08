@@ -1,10 +1,10 @@
-import { LoginForm } from "@/features/auth/components/LoginClient";
+import Plans from "@/features/plans/components/Plans";
 import React from "react";
 
 const page = () => {
   return (
     <div>
-      <LoginForm />
+      <Plans />
     </div>
   );
 };

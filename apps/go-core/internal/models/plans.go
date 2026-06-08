@@ -36,15 +36,12 @@ type Plan struct {
 	HasImageUnderstanding bool `db:"has_image_understanding"  json:"has_image_understanding"`
 	HasBookings           bool `db:"has_bookings"             json:"has_bookings"`
 	HasInventory          bool `db:"has_inventory"            json:"has_inventory"`
-	HasNepalPayments      bool `db:"has_nepal_payments"       json:"has_nepal_payments"`
+	HasPayments      bool `db:"has_payments"       json:"has_payments"`
 	HasGoogleWorkspace    bool `db:"has_google_workspace"     json:"has_google_workspace"`
 	HasMetaAds            bool `db:"has_meta_ads"             json:"has_meta_ads"`
 	HasTikTokAds          bool `db:"has_tiktok_ads"           json:"has_tiktok_ads"`
-	HasWhiteLabel         bool `db:"has_white_label"          json:"has_white_label"`
-	HasApiAccess          bool `db:"has_api_access"           json:"has_api_access"`
 	HasPrioritySupport    bool `db:"has_priority_support"     json:"has_priority_support"`
 
-	// ── Overage (nil = hard block) ────────────────────────────────────────────
 	AiReplyOveragePriceUsdPer500 *int `db:"ai_reply_overage_price_usd_per_500" json:"ai_reply_overage_price_usd_per_500,omitempty"`
 
 	IsActive bool `db:"is_active" json:"is_active"`

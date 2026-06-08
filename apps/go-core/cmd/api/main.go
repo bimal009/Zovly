@@ -9,16 +9,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/bimal009/Zovly/api/routes"
 	"github.com/bimal009/Zovly/internal/config"
 	"github.com/bimal009/Zovly/internal/config/database"
 	"github.com/bimal009/Zovly/internal/config/redis"
 	"github.com/bimal009/Zovly/internal/handler"
 	"github.com/bimal009/Zovly/internal/middlewares"
 	repository "github.com/bimal009/Zovly/internal/repo"
-	"github.com/bimal009/Zovly/internal/routes"
 	"github.com/bimal009/Zovly/internal/service"
 	"github.com/bimal009/Zovly/pkg/logger"
-	"github.com/bimal009/Zovly/pkg/utils"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
@@ -27,7 +26,6 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	// ── config & infra ─────────────────────────────────────────────────────────
 	cfg := config.MustLoad()
 	slog := logger.New(cfg.App.Env)
 
@@ -43,14 +41,11 @@ func main() {
 	}
 	defer rdb.Close()
 
-	// ── dependencies ───────────────────────────────────────────────────────────
-	jwtUtil := utils.NewJWTUtil(*cfg)
-	userRepo := repository.NewUserRepo(db)
-	accountRepo := repository.NewAccountRepo(db)
-	authService := service.NewAuthService(db, userRepo, accountRepo, rdb, slog, jwtUtil)
-	authHandler := handler.NewAuthHandler(authService, *cfg)
+	planRepo := repository.NewPlansRepo(db)
+	planService := service.NewPlanService(db, rdb, slog,planRepo)
+	planHandler := handler.NewPlanHandler(planService)
+	paddleHandler := handler.NewPaddleHandler(*cfg)
 
-	// ── gin setup ──────────────────────────────────────────────────────────────
 	if cfg.App.Env == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
@@ -69,8 +64,7 @@ func main() {
 	r.Use(limiter.LimitMiddleWare())
 
 	api := r.Group("/api/v1")
-	routes.RegisterAuthRoutes(api, authHandler, jwtUtil)
-
+	routes.RegisterAll(api, planHandler, paddleHandler)
 	httpServer := &http.Server{
 		Addr:         ":" + cfg.App.Port,
 		Handler:      r,

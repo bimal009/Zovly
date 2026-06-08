@@ -2,16 +2,17 @@ package routes
 
 import (
 	"github.com/bimal009/Zovly/internal/handler"
-	"github.com/bimal009/Zovly/pkg/utils"
 	"github.com/gin-gonic/gin"
 )
 
 func RegisterAll(
-	r *gin.Engine,
-	jwtUtil *utils.JWTUtil,
+	api *gin.RouterGroup,
 	planHandler *handler.PlanHandler,
+	paddleHandler *handler.PaddleHandler,
 ) {
-	api := r.Group("/api/v1")
-	plans:=api.Group("/plans")
+	plans := api.Group("/plans")
 	plans.GET("/all", planHandler.GetAll)
+
+	paddlePayment := api.Group("/payment")
+	paddlePayment.POST("/paddle/webhook", paddleHandler.Webhook)
 }

@@ -53,14 +53,12 @@ export const plans = pgTable(
       .notNull(),
     hasBookings: boolean("has_bookings").default(false).notNull(),
     hasInventory: boolean("has_inventory").default(false).notNull(),
-    hasNepalPayments: boolean("has_nepal_payments").default(false).notNull(),
+    hasPayments: boolean("has_payments").default(false).notNull(),
     hasGoogleWorkspace: boolean("has_google_workspace")
       .default(false)
       .notNull(),
     hasMetaAds: boolean("has_meta_ads").default(false).notNull(),
     hasTikTokAds: boolean("has_tiktok_ads").default(false).notNull(),
-    hasWhiteLabel: boolean("has_white_label").default(false).notNull(),
-    hasApiAccess: boolean("has_api_access").default(false).notNull(),
     hasPrioritySupport: boolean("has_priority_support")
       .default(false)
       .notNull(),
