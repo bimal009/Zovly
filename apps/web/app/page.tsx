@@ -1,12 +1,12 @@
-import React from 'react'
-import { LoginForm } from '../features/auth/components/LoginClient'
+import { LoginForm } from "@/features/auth/components/LoginClient";
+import React from "react";
 
 const page = () => {
   return (
     <div>
-      <LoginForm/>
+      <LoginForm />
     </div>
-  )
-}
+  );
+};
 
-export default page
+export default page;

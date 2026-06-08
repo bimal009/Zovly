@@ -8,6 +8,27 @@
       "when": 1780820001296,
       "tag": "0000_yellow_ozymandias",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1780894312928,
+      "tag": "0001_furry_vision",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1780905960172,
+      "tag": "0002_lazy_green_goblin",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1780908715973,
+      "tag": "0003_lying_black_bolt",
+      "breakpoints": true
     }
   ]
 }

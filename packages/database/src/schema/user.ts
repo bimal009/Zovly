@@ -1,10 +1,15 @@
+import { business } from "./business";
 import { relations } from "drizzle-orm";
-import { pgTable, text, timestamp, boolean, index, pgEnum, uuid } from "drizzle-orm/pg-core";
-export const userRoleEnum = pgEnum('user_role', [
-  'vendor',  
-  'admin', 
-  'user'
-])
+import {
+  pgTable,
+  text,
+  timestamp,
+  boolean,
+  index,
+  pgEnum,
+  uuid,
+} from "drizzle-orm/pg-core";
+export const userRoleEnum = pgEnum("user_role", ["vendor", "admin", "user"]);
 
 export const user = pgTable(
   "user",
@@ -15,8 +20,12 @@ export const user = pgTable(
     emailVerified: boolean("email_verified").default(false).notNull(),
     image: text("image"),
     role: userRoleEnum().notNull().default("user"),
-    
-    isOnboarded: boolean('is_onboarded').default(false).notNull(),
+
+    businessId: uuid("business_id")
+      .references(() => business.id, { onDelete: "cascade" })
+      .notNull(),
+
+    isOnboarded: boolean("is_onboarded").default(false).notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at")
       .defaultNow()
@@ -26,7 +35,8 @@ export const user = pgTable(
   (table) => [
     index("user_email_idx").on(table.email),
     index("user_role_idx").on(table.role),
-  ]
+    index("user_business_idx").on(table.businessId), // ← query all users in a business fast
+  ],
 );
 
 export const session = pgTable(
@@ -73,7 +83,7 @@ export const account = pgTable(
     index("account_user_idx").on(table.userId),
     index("account_provider_idx").on(table.providerId),
     index("account_accountId_idx").on(table.accountId),
-  ]
+  ],
 );
 
 export const verification = pgTable(
@@ -95,7 +105,6 @@ export const verification = pgTable(
 export const userRelations = relations(user, ({ many, one }) => ({
   sessions: many(session),
   accounts: many(account),
-
 }));
 
 export const sessionRelations = relations(session, ({ one }) => ({
@@ -112,4 +121,4 @@ export const accountRelations = relations(account, ({ one }) => ({
   }),
 }));
 
-export type SelectUser = typeof user.$inferSelect
+export type SelectUser = typeof user.$inferSelect;
