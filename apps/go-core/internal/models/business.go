@@ -1,11 +1,8 @@
 package models
-// internal/models/business.go
-package models
 
 import "time"
 
 type BusinessType string
-type Plan string
 
 const (
 	BusinessTypeProduct BusinessType = "product"

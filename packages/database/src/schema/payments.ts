@@ -1,6 +1,5 @@
 import {
   pgTable,
-  pgEnum,
   uuid,
   text,
   integer,
@@ -9,20 +8,9 @@ import {
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { business } from "./business";
-import { plans, billingCycleEnum } from "./plans";
+import { plans } from "./plans";
 import { businessSubscriptions } from "./subscriptions";
-
-// ── Enums ─────────────────────────────────────────────────────────────────────
-
-export const paymentStatusEnum = pgEnum("payment_status", [
-  "paid",
-  "refunded",
-  "partially_refunded",
-  "failed",
-]);
-
-// ── Payment Records ───────────────────────────────────────────────────────────
-// One row per Paddle transaction. Populated via Paddle webhooks.
+import { billingCycleEnum, paymentStatusEnum } from "./enums"; // ← from enums
 
 export const paymentRecords = pgTable(
   "payment_records",
@@ -41,12 +29,10 @@ export const paymentRecords = pgTable(
     planId: uuid("plan_id").references(() => plans.id),
     billingCycle: billingCycleEnum("billing_cycle").notNull(),
 
-    // ── Paddle transaction data ───────────────────────────────────────────────
-    paddleTransactionId: text("paddle_transaction_id").unique().notNull(), // txn_xxxx
-    paddleSubscriptionId: text("paddle_subscription_id"),                  // sub_xxxx
-    paddleCustomerId: text("paddle_customer_id"),                          // ctm_xxxx
+    paddleTransactionId: text("paddle_transaction_id").unique().notNull(),
+    paddleSubscriptionId: text("paddle_subscription_id"),
+    paddleCustomerId: text("paddle_customer_id"),
 
-    // ── Amount (minor units, e.g. cents for USD) ──────────────────────────────
     amount: integer("amount").notNull(),
     currency: text("currency").notNull().default("USD"),
 
@@ -70,8 +56,6 @@ export const paymentRecords = pgTable(
   ],
 );
 
-// ── Relations ─────────────────────────────────────────────────────────────────
-
 export const paymentRecordRelations = relations(paymentRecords, ({ one }) => ({
   business: one(business, {
     fields: [paymentRecords.businessId],
@@ -86,8 +70,6 @@ export const paymentRecordRelations = relations(paymentRecords, ({ one }) => ({
     references: [plans.id],
   }),
 }));
-
-// ── Type helpers ──────────────────────────────────────────────────────────────
 
 export type PaymentRecord = typeof paymentRecords.$inferSelect;
 export type NewPaymentRecord = typeof paymentRecords.$inferInsert;
