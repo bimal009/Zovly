@@ -1,6 +1,8 @@
 package database
 
 import (
+	"context"
+	"fmt"
 	"time"
 
 	"github.com/bimal009/Zovly/internal/config"
@@ -12,22 +14,24 @@ import (
 func NewDB(cfg *config.Config) (*sqlx.DB, error) {
 	connConfig, err := pgx.ParseConfig(cfg.DB.URL)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parse db config: %w", err)
 	}
-	// Simple protocol avoids named/unnamed prepared statements, which fail on
-	// PgBouncer in transaction mode (Neon pooler).
-	connConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+
+	connConfig.DefaultQueryExecMode = pgx.QueryExecModeCacheDescribe
 
 	db := sqlx.NewDb(stdlib.OpenDB(*connConfig), "pgx")
 
-	if err := db.Ping(); err != nil {
-		return nil, err
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := db.PingContext(ctx); err != nil {
+		return nil, fmt.Errorf("ping db: %w", err)
 	}
 
-	db.SetMaxOpenConns(25)
-	db.SetMaxIdleConns(10)
-	db.SetConnMaxLifetime(30 * time.Minute)
-	db.SetConnMaxIdleTime(5 * time.Minute)
+	db.SetMaxOpenConns(cfg.DB.MaxOpenConns)    // default: 25
+	db.SetMaxIdleConns(cfg.DB.MaxIdleConns)    // default: 10
+	db.SetConnMaxLifetime(cfg.DB.ConnLifetime) // default: 30min
+	db.SetConnMaxIdleTime(cfg.DB.ConnIdleTime) // default: 5min
 
 	return db, nil
 }

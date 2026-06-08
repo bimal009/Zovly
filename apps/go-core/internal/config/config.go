@@ -3,19 +3,24 @@ package config
 
 import (
 	"log"
+	"time"
 
 	"github.com/caarlos0/env/v11"
 )
 
 type App struct {
-	Port         string `env:"APP_PORT,required"`
-	Env          string `env:"APP_ENV" envDefault:"production"`
-	FrontendURL  string `env:"FRONTEND_URL" envDefault:"http://localhost:3000"`
-	AllowOrigins []string
+	Port         string   `env:"APP_PORT,required"`
+	Env          string   `env:"APP_ENV" envDefault:"production"`
+	FrontendURL  string   `env:"FRONTEND_URL" envDefault:"http://localhost:3000"`
+	AllowOrigins []string `env:"ALLOW_ORIGINS"   envDefault:"http://localhost:3000"`
 }
 
 type DB struct {
-	URL string `env:"DATABASE_URL,required"`
+	URL          string        `env:"DATABASE_URL,required"`
+	MaxOpenConns int           `env:"DB_MAX_OPEN_CONNS"     envDefault:"25"`
+	MaxIdleConns int           `env:"DB_MAX_IDLE_CONNS"     envDefault:"10"`
+	ConnLifetime time.Duration `env:"DB_CONN_LIFETIME"      envDefault:"30m"`
+	ConnIdleTime time.Duration `env:"DB_CONN_IDLE_TIME"     envDefault:"5m"`
 }
 
 type ImageKit struct {

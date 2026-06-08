@@ -28,3 +28,8 @@ type Account struct {
 	CreatedAt         time.Time   `db:"created_at"          json:"created_at"`
 	UpdatedAt         time.Time   `db:"updated_at"          json:"updated_at"`
 }
+type AccountTokenUpdate struct {
+	AccessToken  *string
+	RefreshToken *string
+	ExpiresAt    *int64 // matches db:"expires_at" int64 on Account
+}

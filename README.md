@@ -1,207 +1,159 @@
-# Zovly
+# Turborepo starter
 
-**Universal Business Platform** � Video Upload � Social Media � AI Lead Gen � Bookings � Inventory � Payments � Analytics
+This Turborepo starter is maintained by the Turborepo core team.
 
-Zovly is an all-in-one platform that lets businesses upload video once and post across all social platforms, manage inventory, handle bookings, process payments, and run AI-powered lead generation � all in one place.
+## Using this example
 
----
+Run the following command:
 
-## ?? Core Features
+```sh
+npx create-turbo@latest
+```
 
-### ?? Content Hub
-- Upload one video ? auto-post to TikTok, Instagram, YouTube, Facebook
-- AI-generated captions + hashtags optimized per platform
-- Unified analytics dashboard across all platforms
-- Scheduled posting with smart timing recommendations
+## What's inside?
 
-### ?? Analytics Engine
-- Cross-platform performance metrics in one view
-- AI insights: "Your Tuesday 6pm posts get 3x more bookings"
-- Ad analytics with budget optimization suggestions
-- Real-time dashboard updates via WebSocket
+This Turborepo includes the following packages/apps:
 
-### ?? AI Lead Generation
-- Auto-reply to DMs with personalized, context-aware messages
-- Comment monitoring ? intelligent lead capture
-- AI-powered follow-up sequences via DM
-- Lead scoring based on conversation patterns
-- Sentiment analysis and auto-reply patterns
+### Apps and Packages
 
-### ?? AI Ad Manager
-- Connect Meta, TikTok, and Google Ads from one dashboard
-- AI suggests which content to boost based on organic performance
-- Run and optimize campaigns without leaving the platform
-- Real-time performance tracking and ROI calculation
+- `docs`: a [Next.js](https://nextjs.org/) app
+- `web`: another [Next.js](https://nextjs.org/) app
+- `@repo/ui`: a stub React component library shared by both `web` and `docs` applications
+- `@repo/eslint-config`: `eslint` configurations (includes `eslint-config-next` and `eslint-config-prettier`)
+- `@repo/typescript-config`: `tsconfig.json`s used throughout the monorepo
 
-### ?? Product Seller Module (Optional)
-- Inventory management with stock tracking
-- Stripe product checkout integration
-- Social commerce posts with instant purchasing
-- Low stock alerts and automated restocking
-- Multi-platform order management
+Each package/app is 100% [TypeScript](https://www.typescriptlang.org/).
 
-### ?? Service Business Module (Optional)
-- Booking calendar with availability management
-- Google Calendar sync for seamless integration
-- Stripe appointment payments
-- Automated booking reminders & confirmations
-- Staff scheduling capabilities
-- Email & SMS notifications
+### Utilities
 
-### ?? Integrations
-- **Google Workspace**: Calendar, Gmail, Drive
-- **Stripe**: Payments, Connect for marketplace model
-- **Meta**: Instagram, Facebook, WhatsApp
-- **TikTok**: Content posting & ad management
-- **YouTube**: Video upload & analytics
-- **Shopify**: Inventory sync (v2)
+This Turborepo has some additional tools already setup for you:
 
----
+- [TypeScript](https://www.typescriptlang.org/) for static type checking
+- [ESLint](https://eslint.org/) for code linting
+- [Prettier](https://prettier.io) for code formatting
 
-## ??? Architecture Overview
+### Build
 
-### Tech Stack
-- **Frontend**: Next.js 15 (React App Router, SSR)
-- **Backend**: Go (Fiber) + Python (gRPC ML service)
-- **Database**: Neon (PostgreSQL) + pgvector for RAG
-- **Cache & Streams**: Redis 7
-- **Media**: Cloudflare R2 (zero egress fees)
-- **Search**: pgvector (HNSW indexes) ? Qdrant (scale)
-- **AI**: Claude 3.5 Sonnet via Anthropic API
-- **Infrastructure**: Docker Compose on DigitalOcean / Self-hosted VPS
+To build all apps and packages, run the following command:
 
-### Service Map
-| Service | Language | Port(s) | Protocol | Role |
-|---------|----------|---------|----------|------|
-| web | Next.js 15 | :3000 | HTTP | UI, auth, API routes |
-| go-core | Go (Fiber) | :8080 / :9090 | HTTP + WS | REST API, webhooks, business logic |
-| py-ml | Python | :50051 | gRPC (TCP) | Embeddings, transcription, ML jobs |
-| redis | Redis 7 | :6379 | TCP (RESP) | Cache, streams, pub/sub, rate limiting |
-| caddy | Caddy 2 | :80/:443 | TLS | Reverse proxy, SSL termination |
+With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
 
-### Monorepo Structure
-``
-apps/
-  web/              # Next.js 15 frontend
-  go-core/          # Go backend (main API)
-  py-ml/            # Python gRPC server
-packages/
-  database/         # Drizzle ORM + schema
-  redis/            # Redis helpers
-  types/            # Shared TypeScript types
-  ui/               # Component library
-  config/           # Configs (ESLint, Tailwind, TS)
-infra/
-  docker/           # Dockerfiles
-  caddy/            # Reverse proxy config
-  compose/          # docker-compose.yml
-``
+```sh
+cd my-turborepo
+turbo build
+```
 
----
+Without global `turbo`, use your package manager:
 
-## ?? AI & RAG Pipeline
+```sh
+cd my-turborepo
+npx turbo build
+pnpm dlx turbo build
+pnpm exec turbo build
+```
 
-When a customer DMs your business, Claude receives context from **5 sources in parallel**:
+You can build a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
 
-1. **System Prompt** � Business persona, tone, working hours (Redis cached)
-2. **Knowledge RAG** � Products, services, FAQs (pgvector search)
-3. **Conversation History** � Last 10 messages (Redis cached)
-4. **Similar Past Chats** � Resolved threads with similar questions (pgvector search)
-5. **Customer Profile** � Past bookings, spend, lead score (Neon DB query)
+With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
 
-**Result**: Claude gives accurate, business-aware replies � not hallucinations.
+```sh
+turbo build --filter=docs
+```
 
----
+Without global `turbo`:
 
-## ?? Pricing & Costs
+```sh
+npx turbo build --filter=docs
+pnpm exec turbo build --filter=docs
+pnpm exec turbo build --filter=docs
+```
 
-### MVP Monthly Budget (0�100 businesses)
-| Service | Tier | Cost/mo | Notes |
-|---------|------|---------|-------|
-| DigitalOcean Droplet | 4GB RAM, 2vCPU | $24 | Runs all containers |
-| Neon Postgres | Free | $0 | 0.5GB � enough for MVP |
-| Cloudflare R2 | Free | $0 | 10GB storage, zero egress |
-| Upstash Redis | Free | $0 | 10k commands/day |
-| Anthropic Claude | Pay per token | $10�30 | Depends on AI volume |
-| Stripe | Transaction fees | $0 | 2.9% + 30� per transaction |
-| **TOTAL** | | **$35�55/mo** | Before credits |
+### Develop
 
-### Free Credits to Stack
-- ? **DigitalOcean Student Pack** � $200 credit via GitHub Student Developer Pack
-- ? **Cloudflare** � R2 free tier is permanent
-- ? **Neon** � Free tier is permanent (0.5GB, 1 project)
-- ? **Upstash** � Free tier is permanent (10k commands/day)
+To develop all apps and packages, run the following command:
 
----
+With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
 
-## ?? Getting Started
+```sh
+cd my-turborepo
+turbo dev
+```
 
-### Prerequisites
-- Node.js 18+
-- Go 1.21+
-- Python 3.10+
-- Docker & Docker Compose
-- pnpm (monorepo package manager)
+Without global `turbo`, use your package manager:
 
-### Local Development
+```sh
+cd my-turborepo
+npx turbo dev
+pnpm exec turbo dev
+pnpm exec turbo dev
+```
 
-1. **Clone & Install**
-   ``ash
-   git clone https://github.com/yourorg/zovly.git
-   cd zovly
-   pnpm install
-   ``
+You can develop a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
 
-2. **Environment Setup**
-   ``ash
-   cp .env.example .env
-   # Fill in your API keys (Meta, Stripe, Anthropic, etc.)
-   ``
+With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
 
-3. **Database Migration**
-   ``ash
-   cd packages/database
-   npx drizzle-kit push
-   ``
+```sh
+turbo dev --filter=web
+```
 
-4. **Start Services**
-   ``ash
-   docker-compose up
-   ``
+Without global `turbo`:
 
-5. **Open Dashboard**
-   - Frontend: http://localhost:3000
-   - API: http://localhost:8080
-   - WebSocket: ws://localhost:8080/ws
+```sh
+npx turbo dev --filter=web
+pnpm exec turbo dev --filter=web
+pnpm exec turbo dev --filter=web
+```
 
-### Deploy to DigitalOcean
+### Remote Caching
 
-1. Create a DigitalOcean App (or droplet)
-2. Connect Git repo
-3. Add environment variables via App dashboard
-4. Deploy ? Caddy auto-provisions SSL
+> [!TIP]
+> Vercel Remote Cache is free for all plans. Get started today at [vercel.com](https://vercel.com/signup?utm_source=remote-cache-sdk&utm_campaign=free_remote_cache).
 
----
+Turborepo can use a technique known as [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching) to share cache artifacts across machines, enabling you to share build caches with your team and CI/CD pipelines.
 
-## ?? Documentation
+By default, Turborepo will cache locally. To enable Remote Caching you will need an account with Vercel. If you don't have an account you can [create one](https://vercel.com/signup?utm_source=turborepo-examples), then enter the following commands:
 
-See the full [Architecture & Execution Plan](./docs/ARCHITECTURE.md) (34 pages) for:
-- Deep dives on each service
-- Database schema details
-- gRPC/Protobuf communication patterns
-- Webhook architecture with Redis Streams
-- Go concurrency patterns (errgroup, rate limiting)
-- MCP integrations for Claude tools
-- Complete 12-week execution roadmap
+With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
 
----
+```sh
+cd my-turborepo
+turbo login
+```
 
-## ?? Support
+Without global `turbo`, use your package manager:
 
-- **Discord Community**: [Join us](#)
-- **Email**: support@zovly.app
-- **Issues**: [GitHub Issues](#)
+```sh
+cd my-turborepo
+npx turbo login
+pnpm exec turbo login
+pnpm exec turbo login
+```
 
----
+This will authenticate the Turborepo CLI with your [Vercel account](https://vercel.com/docs/concepts/personal-accounts/overview).
 
-**Designed June 2026 � The unified platform for modern businesses.**
+Next, you can link your Turborepo to your Remote Cache by running the following command from the root of your Turborepo:
+
+With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
+
+```sh
+turbo link
+```
+
+Without global `turbo`:
+
+```sh
+npx turbo link
+pnpm exec turbo link
+pnpm exec turbo link
+```
+
+## Useful Links
+
+Learn more about the power of Turborepo:
+
+- [Tasks](https://turborepo.dev/docs/crafting-your-repository/running-tasks)
+- [Caching](https://turborepo.dev/docs/crafting-your-repository/caching)
+- [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching)
+- [Filtering](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters)
+- [Configuration Options](https://turborepo.dev/docs/reference/configuration)
+- [CLI Usage](https://turborepo.dev/docs/reference/command-line-reference)
