@@ -34,7 +34,6 @@ export const business = pgTable(
     country: text("country").default("NP"), // Nepal default
 
     type: businessTypeEnum("type").notNull().default("service"),
-    plan: planEnum("plan").notNull().default("starter"),
 
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at")
@@ -45,7 +44,6 @@ export const business = pgTable(
   (table) => [
     index("business_slug_idx").on(table.slug),
     index("business_type_idx").on(table.type),
-    index("business_plan_idx").on(table.plan),
   ],
 );
 

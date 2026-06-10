@@ -28,16 +28,16 @@ func NewSessionRepo(db *sqlx.DB) SessionRepo {
 func (r *sessionRepo) GetByToken(ctx context.Context, token string) (*models.SessionWithUser, error) {
 	var session models.SessionWithUser
 	err := r.db.GetContext(ctx, &session, `
-		SELECT 
+		SELECT
 			s.id, s.user_id, s.token, s.expires_at, s.created_at, s.updated_at,
 			u.name  AS user_name,
 			u.email AS user_email,
 			u.role  AS user_role,
-			u.onboarded  AS user_onboarded,
+			u.is_onboarded  AS user_onboarded,
 			u.email_verified AS user_email_verified,
 			u.image AS user_image
-		FROM sessions s
-		JOIN users u ON u.id = s.user_id
+		FROM session s
+		JOIN "user" u ON u.id = s.user_id
 		WHERE s.token=$1 AND s.expires_at > NOW()`, token)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {

@@ -24,9 +24,9 @@ type Business struct {
 	City        *string      `db:"city"        json:"city,omitempty"`
 	Country     string       `db:"country"     json:"country"`
 	Type        BusinessType `db:"type"        json:"type"`
-	Plan        Plan         `db:"plan"        json:"plan"`
-	CreatedAt   time.Time    `db:"created_at"  json:"created_at"`
-	UpdatedAt   time.Time    `db:"updated_at"  json:"updated_at"`
+	// Plan is intentionally absent — fetch via business_subscriptions → plans
+	CreatedAt time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt time.Time `db:"updated_at" json:"updated_at"`
 }
 
 // BusinessUpdate holds mutable fields for PATCH-style updates.
@@ -40,5 +40,4 @@ type BusinessUpdate struct {
 	City        *string
 	Country     *string
 	Type        *BusinessType
-	Plan        *Plan
 }

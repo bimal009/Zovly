@@ -7,48 +7,63 @@ import (
 	"net/http"
 
 	paddle "github.com/PaddleHQ/paddle-go-sdk/v5"
+	paddlenotification "github.com/PaddleHQ/paddle-go-sdk/v5/pkg/paddlenotification"
 	"github.com/bimal009/Zovly/internal/config"
+	repository "github.com/bimal009/Zovly/internal/repo"
+	"github.com/bimal009/Zovly/internal/service"
 	"github.com/gin-gonic/gin"
 )
 
 type PaddleHandler struct {
-	cfg config.Config
+	cfg       config.Config
+	paddleSvc service.PaddleService
 }
 
-func NewPaddleHandler(cfg config.Config) *PaddleHandler {
-	return &PaddleHandler{cfg: cfg}
+func NewPaddleHandler(
+	cfg config.Config,
+	subRepo repository.SubscriptionRepo,
+	planRepo repository.PlanRepo,
+	payRepo repository.PaymentRepo,
+) *PaddleHandler {
+	return &PaddleHandler{
+		cfg:       cfg,
+		paddleSvc: service.NewPaddleService(subRepo, planRepo, payRepo),
+	}
 }
 
 func (h *PaddleHandler) Webhook(c *gin.Context) {
 	verifier := paddle.NewWebhookVerifier(h.cfg.Paddle.WebhookSecret)
 
 	handler := verifier.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Read the raw body (already verified at this point)
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
-			http.Error(w, "failed to read body", http.StatusInternalServerError)
+			fmt.Printf("[paddle] ❌ failed to read body: %v\n", err)
+			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 
-		// Decode into a generic map to inspect event_type
-		var event map[string]interface{}
-		if err := json.Unmarshal(body, &event); err != nil {
-			http.Error(w, "failed to parse event", http.StatusBadRequest)
+		var generic paddlenotification.GenericNotificationEvent
+		if err := json.Unmarshal(body, &generic); err != nil {
+			fmt.Printf("[paddle] ❌ failed to parse event: %v\n", err)
+			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 
-		switch event["event_type"] {
-		case "subscription.created":
-			fmt.Println("Subscription Created")
-		
-		case "subscription.updated":
-			fmt.Println("Subscription Updated")
-		
-		case "transaction.completed":
-			fmt.Println("Transaction Completed")
-		
-		default:
-			fmt.Printf("Unhandled Event: %v\n", event["event_type"])
+		// ── Log every event ───────────────────────────────────────────────────
+		dataJSON, _ := json.MarshalIndent(generic.Data, "", "  ")
+		fmt.Printf("\n========================================\n")
+		fmt.Printf("[paddle] 📦 %s\n", generic.EventType)
+		fmt.Printf("[paddle] 🆔 %s\n", generic.EventID)
+		fmt.Printf("[paddle] 🕐 %s\n", generic.OccurredAt)
+		fmt.Printf("----------------------------------------\n")
+		fmt.Printf("%s\n", string(dataJSON))
+		fmt.Printf("========================================\n\n")
+
+		// ── Dispatch ──────────────────────────────────────────────────────────
+		if err := h.paddleSvc.HandleEvent(r.Context(), body, generic.EventType); err != nil {
+			fmt.Printf("[paddle] ❌ handler error: %v\n", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -59,3 +74,6 @@ func (h *PaddleHandler) Webhook(c *gin.Context) {
 	handler.ServeHTTP(c.Writer, c.Request)
 }
 
+func (h *PaddleHandler) RegisterRoutes(rg *gin.RouterGroup) {
+	rg.POST("/webhook", h.Webhook)
+}

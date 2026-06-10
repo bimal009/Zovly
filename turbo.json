@@ -11,7 +11,10 @@
         "BETTER_AUTH_URL",
         "GOOGLE_CLIENT_ID",
         "GOOGLE_CLIENT_SECRET",
-        "NODE_ENV"
+        "NODE_ENV",
+        "REDIS_ADDR",
+        "REDIS_PASSWORD",
+        "REDIS_DB"
       ]
     },
     "lint": {

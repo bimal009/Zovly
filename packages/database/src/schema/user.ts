@@ -21,9 +21,10 @@ export const user = pgTable(
     image: text("image"),
     role: userRoleEnum().notNull().default("user"),
 
-    businessId: uuid("business_id")
-      .references(() => business.id, { onDelete: "cascade" })
-      .notNull(),
+    // Null until the user completes onboarding and creates/joins a business
+    businessId: uuid("business_id").references(() => business.id, {
+      onDelete: "set null",
+    }),
 
     isOnboarded: boolean("is_onboarded").default(false).notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),

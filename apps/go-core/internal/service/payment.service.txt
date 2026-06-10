@@ -1,0 +1,89 @@
+// package service
+
+// import (
+// 	"context"
+// 	"log/slog"
+
+// 	"github.com/bimal009/Zovly/internal/models"
+// 	repository "github.com/bimal009/Zovly/internal/repo"
+// )
+
+// type PaymentService interface {
+// 	Create(ctx context.Context, payment models.PaymentRecord) (*models.PaymentRecord, error)
+// 	GetByID(ctx context.Context, id string) (*models.PaymentRecord, error)
+// 	GetByBusinessID(ctx context.Context, businessID string) ([]models.PaymentRecord, error)
+// 	GetByPaddleTransactionID(ctx context.Context, txnID string) (*models.PaymentRecord, error)
+// 	GetBySubscriptionID(ctx context.Context, subscriptionID string) ([]models.PaymentRecord, error)
+// }
+
+// type paymentService struct {
+// 	paymentRepo repository.PaymentRepo
+// 	log         *slog.Logger
+// }
+
+// func NewPaymentService(paymentRepo repository.PaymentRepo, log *slog.Logger) PaymentService {
+// 	return &paymentService{
+// 		paymentRepo: paymentRepo,
+// 		log:         log,
+// 	}
+// }
+
+// func (s *paymentService) Create(ctx context.Context, payment models.PaymentRecord) (*models.PaymentRecord, error) {
+// 	s.log.Info("Creating payment record", "business_id", payment.BusinessID, "txn_id", payment.PaddleTransactionID)
+
+// 	record, err := s.paymentRepo.Create(ctx, payment)
+// 	if err != nil {
+// 		s.log.Error("Failed to create payment record", "error", err)
+// 		return nil, err
+// 	}
+
+// 	return record, nil
+// }
+
+// func (s *paymentService) GetByID(ctx context.Context, id string) (*models.PaymentRecord, error) {
+// 	s.log.Info("Fetching payment record", "id", id)
+
+// 	record, err := s.paymentRepo.GetByID(ctx, id)
+// 	if err != nil {
+// 		s.log.Error("Failed to fetch payment record", "id", id, "error", err)
+// 		return nil, err
+// 	}
+
+// 	return record, nil
+// }
+
+// func (s *paymentService) GetByBusinessID(ctx context.Context, businessID string) ([]models.PaymentRecord, error) {
+// 	s.log.Info("Fetching payment records", "business_id", businessID)
+
+// 	records, err := s.paymentRepo.GetByBusinessID(ctx, businessID)
+// 	if err != nil {
+// 		s.log.Error("Failed to fetch payment records", "business_id", businessID, "error", err)
+// 		return nil, err
+// 	}
+
+// 	return records, nil
+// }
+
+// func (s *paymentService) GetByPaddleTransactionID(ctx context.Context, txnID string) (*models.PaymentRecord, error) {
+// 	s.log.Info("Fetching payment by transaction", "txn_id", txnID)
+
+// 	record, err := s.paymentRepo.GetByPaddleTransactionID(ctx, txnID)
+// 	if err != nil {
+// 		s.log.Error("Failed to fetch payment by transaction", "txn_id", txnID, "error", err)
+// 		return nil, err
+// 	}
+
+// 	return record, nil
+// }
+
+// func (s *paymentService) GetBySubscriptionID(ctx context.Context, subscriptionID string) ([]models.PaymentRecord, error) {
+// 	s.log.Info("Fetching payments by subscription", "subscription_id", subscriptionID)
+
+// 	records, err := s.paymentRepo.GetBySubscriptionID(ctx, subscriptionID)
+// 	if err != nil {
+// 		s.log.Error("Failed to fetch payments by subscription", "subscription_id", subscriptionID, "error", err)
+// 		return nil, err
+// 	}
+
+// 	return records, nil
+// }

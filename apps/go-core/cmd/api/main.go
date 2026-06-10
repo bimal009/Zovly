@@ -42,10 +42,14 @@ func main() {
 	defer rdb.Close()
 
 	planRepo := repository.NewPlansRepo(db)
-	planService := service.NewPlanService(db, rdb, slog,planRepo)
+	subRepo := repository.NewSubscriptionRepo(db)
+	payRepo := repository.NewPaymentRepo(db)
+	planService := service.NewPlanService(db, rdb, slog, planRepo)
 	planHandler := handler.NewPlanHandler(planService)
-	paddleHandler := handler.NewPaddleHandler(*cfg)
-
+	paddleHandler := handler.NewPaddleHandler(*cfg, subRepo, planRepo, payRepo)
+	imageHandler := handler.NewImageHandler(cfg)
+	sessionRepo := repository.NewSessionRepo(db)
+	authMiddleware := middlewares.RequireAuth(sessionRepo)
 	if cfg.App.Env == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
@@ -64,7 +68,7 @@ func main() {
 	r.Use(limiter.LimitMiddleWare())
 
 	api := r.Group("/api/v1")
-	routes.RegisterAll(api, planHandler, paddleHandler)
+	routes.RegisterAll(api, planHandler, paddleHandler, imageHandler, authMiddleware)
 	httpServer := &http.Server{
 		Addr:         ":" + cfg.App.Port,
 		Handler:      r,
