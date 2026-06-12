@@ -1,3 +1,4 @@
+CREATE EXTENSION IF NOT EXISTS vector;--> statement-breakpoint
 CREATE TYPE "public"."business_type" AS ENUM('product', 'service', 'both');--> statement-breakpoint
 CREATE TYPE "public"."plan" AS ENUM('starter', 'growth', 'pro', 'agency');--> statement-breakpoint
 CREATE TYPE "public"."billing_cycle" AS ENUM('monthly', 'yearly');--> statement-breakpoint

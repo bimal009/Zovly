@@ -11,6 +11,7 @@ import (
 
 	"github.com/bimal009/Zovly/api/routes"
 	"github.com/bimal009/Zovly/internal/config"
+	"github.com/joho/godotenv"
 	"github.com/bimal009/Zovly/internal/config/database"
 	"github.com/bimal009/Zovly/internal/config/redis"
 	"github.com/bimal009/Zovly/internal/handler"
@@ -18,6 +19,7 @@ import (
 	repository "github.com/bimal009/Zovly/internal/repo"
 	"github.com/bimal009/Zovly/internal/service"
 	"github.com/bimal009/Zovly/pkg/logger"
+	"github.com/bimal009/Zovly/pkg/mlclient"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
@@ -25,6 +27,8 @@ import (
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+
+	_ = godotenv.Load() // load .env if present; no-op in prod where vars are injected
 
 	cfg := config.MustLoad()
 	slog := logger.New(cfg.App.Env)
@@ -98,6 +102,22 @@ func main() {
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("failed to start server: %v", err)
 		}
+	}()
+
+	go func() {
+		client, err := mlclient.New("localhost:50051")
+		if err != nil {
+			slog.Warn("ml service unavailable, skipping", "err", err)
+			return
+		}
+		defer client.Close()
+
+		reply, err := client.Chat(context.Background(), "hello from go-core")
+		if err != nil {
+			slog.Warn("ml chat ping failed", "err", err)
+			return
+		}
+		slog.Info("ml service ready", "reply", reply)
 	}()
 
 	<-ctx.Done()
