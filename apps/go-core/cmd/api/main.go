@@ -44,12 +44,28 @@ func main() {
 	planRepo := repository.NewPlansRepo(db)
 	subRepo := repository.NewSubscriptionRepo(db)
 	payRepo := repository.NewPaymentRepo(db)
+	sessionRepo := repository.NewSessionRepo(db)
+	userRepo := repository.NewUserRepo(db)
+	businessRepo := repository.NewBusinessRepo(db)
+	businessMemberRepo := repository.NewBusinessMemberRepo(db)
+	memberInviteRepo := repository.NewMemberInviteRepo(db)
+	productRepo := repository.NewProductRepo(db)
+	serviceRepo := repository.NewServiceRepo(db)
+
 	planService := service.NewPlanService(db, rdb, slog, planRepo)
+	businessService := service.NewBusinessService(db, businessRepo, businessMemberRepo, userRepo, slog)
+	productService := service.NewProductService(db, rdb, slog, productRepo)
+	serviceService := service.NewServiceService(db, rdb, slog, serviceRepo)
+
 	planHandler := handler.NewPlanHandler(planService)
 	paddleHandler := handler.NewPaddleHandler(*cfg, subRepo, planRepo, payRepo)
+	businessHandler := handler.NewBusinessHandler(businessService)
 	imageHandler := handler.NewImageHandler(cfg)
-	sessionRepo := repository.NewSessionRepo(db)
+	productHandler := handler.NewProductHandler(productService)
+	serviceHandler := handler.NewServiceHandler(serviceService)
+
 	authMiddleware := middlewares.RequireAuth(sessionRepo)
+	businessMiddleware := middlewares.RequireBusiness(businessService, memberInviteRepo)
 	if cfg.App.Env == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
@@ -68,7 +84,7 @@ func main() {
 	r.Use(limiter.LimitMiddleWare())
 
 	api := r.Group("/api/v1")
-	routes.RegisterAll(api, planHandler, paddleHandler, imageHandler, authMiddleware)
+	routes.RegisterAll(api, planHandler, paddleHandler, imageHandler, businessHandler, productHandler, serviceHandler, authMiddleware, businessMiddleware)
 	httpServer := &http.Server{
 		Addr:         ":" + cfg.App.Port,
 		Handler:      r,

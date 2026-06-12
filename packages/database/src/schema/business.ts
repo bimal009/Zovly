@@ -10,6 +10,8 @@ import {
 import { relations } from "drizzle-orm";
 import { businessMembers } from "./members";
 import { appConnections } from "./apps";
+import { products } from "./products";
+import { services } from "./services";
 
 export const businessTypeEnum = pgEnum("business_type", [
   "product",
@@ -24,14 +26,13 @@ export const business = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     name: text("name").notNull(),
-    slug: text("slug").notNull().unique(), // e.g. "acme-studio" → used in URLs
     description: text("description"),
     logo: text("logo"), // R2 key
     website: text("website"),
     phone: text("phone"),
     address: text("address"),
     city: text("city"),
-    country: text("country").default("NP"), // Nepal default
+    country: text("country").default("NPL"), // Nepal default
 
     type: businessTypeEnum("type").notNull().default("service"),
 
@@ -41,10 +42,7 @@ export const business = pgTable(
       .$onUpdate(() => new Date())
       .notNull(),
   },
-  (table) => [
-    index("business_slug_idx").on(table.slug),
-    index("business_type_idx").on(table.type),
-  ],
+  (table) => [index("business_type_idx").on(table.type)],
 );
 
 export const businessRelations = relations(business, ({ many, one }) => ({
@@ -53,7 +51,8 @@ export const businessRelations = relations(business, ({ many, one }) => ({
     fields: [business.id],
     references: [appConnections.businessId],
   }),
+  products: many(products),
+  services: many(services),
 }));
-
 export type Business = typeof business.$inferSelect;
 export type NewBusiness = typeof business.$inferInsert;

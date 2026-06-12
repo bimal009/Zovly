@@ -1,7 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { isAxiosError } from "axios";
 import { useForm, Controller } from "react-hook-form";
+import { createBusiness } from "@/features/onboard/api/business";
+import { CreatingDashboard } from "./CreatingDashboard";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Input } from "@repo/ui/components/ui/input";
@@ -15,15 +19,11 @@ import {
   ChevronRight,
   ChevronLeft,
   Check,
-  Loader2,
   AlertCircle,
 } from "lucide-react";
 import { Card } from "@repo/ui/components/ui/card";
 import { cn } from "@repo/ui/utils";
 import { ImageUploader } from "@/components/ImageUploader";
-import { authClient } from "@/lib/auth-client";
-
-// ── Validation schema ─────────────────────────────────────────────────────────
 
 const onboardingSchema = z.object({
   // Step 1
@@ -32,11 +32,6 @@ const onboardingSchema = z.object({
     .string()
     .min(2, "Business name must be at least 2 characters")
     .max(80, "Too long"),
-  slug: z
-    .string()
-    .min(2, "Slug must be at least 2 characters")
-    .max(40, "Too long")
-    .regex(/^[a-z0-9-]+$/, "Only lowercase letters, numbers, and hyphens"),
   description: z.string().max(2000, "Max 2000 characters"),
 
   // Step 2
@@ -98,15 +93,13 @@ function FieldError({ message }: { message?: string }) {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-interface BusinessOnboardingFormProps {
-  onSuccess?: (values: OnboardingValues) => void;
-}
+type Phase = "form" | "creating" | "ready";
 
-export function BusinessOnboardingForm({
-  onSuccess,
-}: BusinessOnboardingFormProps) {
+export function BusinessOnboardingForm() {
+  const router = useRouter();
   const [step, setStep] = useState(1);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [phase, setPhase] = useState<Phase>("form");
+  const [apiError, setApiError] = useState<string | null>(null);
 
   const {
     register,
@@ -121,7 +114,6 @@ export function BusinessOnboardingForm({
     defaultValues: {
       logo: "",
       name: "",
-      slug: "",
       description: "",
       type: "service",
       phone: "",
@@ -133,19 +125,9 @@ export function BusinessOnboardingForm({
     mode: "onChange",
   });
 
-  const handleNameChange = (value: string) => {
-    const slug = value
-      .toLowerCase()
-      .trim()
-      .replace(/[^a-z0-9\s-]/g, "")
-      .replace(/\s+/g, "-")
-      .replace(/-+/g, "-");
-    setValue("slug", slug, { shouldValidate: true });
-  };
-
   const validateStep = async (currentStep: number) => {
     const fieldsPerStep: Record<number, (keyof OnboardingValues)[]> = {
-      1: ["name", "slug"],
+      1: ["name"],
       2: ["type"],
       3: ["phone", "city", "country", "website", "address"],
     };
@@ -160,18 +142,42 @@ export function BusinessOnboardingForm({
   const handleBack = () => setStep((s) => s - 1);
 
   const onSubmit = async (values: OnboardingValues) => {
-    setIsSubmitting(true);
+    setApiError(null);
+    setPhase("creating");
     try {
-      await new Promise((r) => setTimeout(r, 1200));
-      onSuccess?.(values);
-    } finally {
-      setIsSubmitting(false);
+      await createBusiness({
+        name: values.name,
+        description: values.description || undefined,
+        logo: values.logo || undefined,
+        website: values.website || undefined,
+        phone: values.phone,
+        address: values.address || undefined,
+        city: values.city,
+        country: values.country,
+        type: values.type,
+      });
+      setPhase("ready");
+    } catch (err) {
+      setPhase("form");
+      if (isAxiosError(err) && err.response?.data?.message) {
+        setApiError(err.response.data.message as string);
+      } else {
+        setApiError("Something went wrong. Please try again.");
+      }
     }
   };
 
+  if (phase !== "form") {
+    return (
+      <CreatingDashboard
+        phase={phase}
+        onFinish={() => router.push("/")}
+      />
+    );
+  }
+
   const typeValue = watch("type");
   const descriptionValue = watch("description");
-  const slugValue = watch("slug");
   const currentStep = STEPS.find((s) => s.id === step) ?? STEPS[0]!;
 
   return (
@@ -188,6 +194,14 @@ export function BusinessOnboardingForm({
             Takes about a minute &mdash; you can change everything later.
           </p>
         </div>
+
+        {/* API error banner */}
+        {apiError && (
+          <div className="mb-5 flex items-center gap-2.5 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+            <AlertCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
+            {apiError}
+          </div>
+        )}
 
         {/* Step progress */}
         <nav aria-label="Onboarding progress" className="mb-8">
@@ -311,50 +325,9 @@ export function BusinessOnboardingForm({
                       placeholder="Acme Studio"
                       autoFocus
                       className="h-10"
-                      {...register("name", {
-                        onChange: (e) => handleNameChange(e.target.value),
-                      })}
+                      {...register("name")}
                     />
                     <FieldError message={errors.name?.message} />
-                  </div>
-
-                  <div className="space-y-2">
-                    <label
-                      htmlFor="slug"
-                      className="text-sm font-medium leading-none"
-                    >
-                      URL slug
-                    </label>
-                    <div
-                      className={cn(
-                        "flex items-center rounded-md border border-input bg-background overflow-hidden",
-                        "transition-[border-color,box-shadow] duration-200",
-                        "focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/25",
-                      )}
-                    >
-                      <span className="px-3 text-sm text-muted-foreground border-r bg-muted/60 select-none h-10 flex items-center font-medium">
-                        zovly.com/
-                      </span>
-                      <Input
-                        id="slug"
-                        className="border-0 bg-transparent focus-visible:ring-0 rounded-none h-10 shadow-none"
-                        placeholder="acme-studio"
-                        {...register("slug")}
-                      />
-                      {slugValue && !errors.slug && (
-                        <Check
-                          className="w-4 h-4 text-primary mr-3 shrink-0 motion-safe:animate-in motion-safe:zoom-in-50 duration-200"
-                          aria-hidden="true"
-                        />
-                      )}
-                    </div>
-                    {errors.slug ? (
-                      <FieldError message={errors.slug.message} />
-                    ) : (
-                      <p className="text-xs text-muted-foreground">
-                        This will be your public storefront address
-                      </p>
-                    )}
                   </div>
 
                   <div className="space-y-2">
@@ -596,24 +569,11 @@ export function BusinessOnboardingForm({
                 <Button
                   type="button"
                   variant="default"
-                  disabled={isSubmitting}
                   onClick={handleSubmit(onSubmit)}
-                  className="gap-1.5 h-10 px-5 min-w-40 shadow-sm shadow-primary/25"
+                  className="gap-1.5 h-10 px-5 shadow-sm shadow-primary/25"
                 >
-                  {isSubmitting ? (
-                    <>
-                      <Loader2
-                        className="w-4 h-4 animate-spin"
-                        aria-hidden="true"
-                      />
-                      Creating...
-                    </>
-                  ) : (
-                    <>
-                      Create business
-                      <Check className="w-4 h-4" aria-hidden="true" />
-                    </>
-                  )}
+                  Create business
+                  <Check className="w-4 h-4" aria-hidden="true" />
                 </Button>
               )}
             </div>

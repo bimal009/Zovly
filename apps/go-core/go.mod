@@ -12,6 +12,7 @@ require (
 	github.com/imagekit-developer/imagekit-go/v2 v2.7.0
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/jmoiron/sqlx v1.4.0
+	github.com/lib/pq v1.10.9
 	github.com/redis/go-redis/v9 v9.20.0
 	golang.org/x/crypto v0.52.0
 	golang.org/x/oauth2 v0.36.0

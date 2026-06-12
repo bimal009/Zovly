@@ -1,8 +1,7 @@
+"use client";
+
 import { BusinessOnboardingForm } from "@/features/onboard/components/OnboardForm";
-import React from "react";
 
-const page = () => {
+export default function OnboardPage() {
   return <BusinessOnboardingForm />;
-};
-
-export default page;
+}

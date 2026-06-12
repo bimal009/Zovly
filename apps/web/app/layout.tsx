@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Poppins } from "next/font/google";
+import { NuqsAdapter } from "nuqs/adapters/next/app";
 import "@repo/ui/globals.css";
 import QueryProviders from "@/lib/providers/QueryProvider";
 
@@ -22,7 +23,9 @@ export default function RootLayout({
   return (
     <html lang="en" className={poppins.variable}>
       <body className="antialiased">
-        <QueryProviders>{children}</QueryProviders>
+        <NuqsAdapter>
+          <QueryProviders>{children}</QueryProviders>
+        </NuqsAdapter>
       </body>
     </html>
   );

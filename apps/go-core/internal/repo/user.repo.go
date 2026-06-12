@@ -16,7 +16,7 @@ type UserRepo interface {
 	GetByID(ctx context.Context, userID string) (*models.User, error)
 	GetByEmail(ctx context.Context, email string) (*models.User, error)
 	CreateTx(ctx context.Context, tx *sqlx.Tx, user models.User) (*models.User, error)
-	UpdateTx(ctx context.Context, tx *sqlx.Tx, user models.User, userID string) (*models.User, error)
+	UpdateTx(ctx context.Context, tx *sqlx.Tx, userID string, input models.UserUpdate) (*models.User, error)
 }
 
 type userRepo struct {
@@ -27,7 +27,7 @@ func NewUserRepo(db *sqlx.DB) UserRepo {
 	return &userRepo{db: db}
 }
 func (r *userRepo) Delete(ctx context.Context, userID string) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM users WHERE id=$1`, userID)
+	_, err := r.db.ExecContext(ctx, `DELETE FROM "user" WHERE id=$1`, userID)
 	if err != nil {
 		return fmt.Errorf("delete user: %w", err)
 	}
@@ -35,16 +35,16 @@ func (r *userRepo) Delete(ctx context.Context, userID string) error {
 }
 
 func (r *userRepo) Get(ctx context.Context) ([]*models.User, error) {
-	var users []*models.User
-	if err := r.db.SelectContext(ctx, &users, `SELECT * FROM users`); err != nil {
+	var result []*models.User
+	if err := r.db.SelectContext(ctx, &result, `SELECT * FROM "user"`); err != nil {
 		return nil, fmt.Errorf("get users: %w", err)
 	}
-	return users, nil
+	return result, nil
 }
 
 func (r *userRepo) GetByID(ctx context.Context, userID string) (*models.User, error) {
 	var user models.User
-	if err := r.db.GetContext(ctx, &user, `SELECT * FROM users WHERE id=$1`, userID); err != nil {
+	if err := r.db.GetContext(ctx, &user, `SELECT * FROM "user" WHERE id=$1`, userID); err != nil {
 		return nil, fmt.Errorf("get user by id: %w", err)
 	}
 	return &user, nil
@@ -52,7 +52,7 @@ func (r *userRepo) GetByID(ctx context.Context, userID string) (*models.User, er
 
 func (r *userRepo) GetByEmail(ctx context.Context, email string) (*models.User, error) {
 	var user models.User
-	if err := r.db.GetContext(ctx, &user, `SELECT * FROM users WHERE email=$1`, email); err != nil {
+	if err := r.db.GetContext(ctx, &user, `SELECT * FROM "user" WHERE email=$1`, email); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
@@ -63,7 +63,7 @@ func (r *userRepo) GetByEmail(ctx context.Context, email string) (*models.User, 
 
 func (r *userRepo) CreateTx(ctx context.Context, tx *sqlx.Tx, user models.User) (*models.User, error) {
 	query := `
-		INSERT INTO users (name, email, role)
+		INSERT INTO "user" (name, email, role)
 		VALUES (:name, :email, :role)
 		RETURNING *`
 
@@ -82,17 +82,21 @@ func (r *userRepo) CreateTx(ctx context.Context, tx *sqlx.Tx, user models.User) 
 	return &created, nil
 }
 
-func (r *userRepo) UpdateTx(ctx context.Context, tx *sqlx.Tx, user models.User, userID string) (*models.User, error) {
+func (r *userRepo) UpdateTx(ctx context.Context, tx *sqlx.Tx, userID string, input models.UserUpdate) (*models.User, error) {
 	query := `
-		UPDATE users
-		SET name=:name, email=:email, image=:image,
-		    email_verified=:email_verified, role=:role,
-		    onboarded=:onboarded, updated_at=NOW()
-		WHERE id=:id
+		UPDATE "user"
+		SET name           = COALESCE(:name,           name),
+		    email          = COALESCE(:email,          email),
+		    image          = COALESCE(:image,          image),
+		    role           = COALESCE(:role,           role),
+		    email_verified = COALESCE(:email_verified, email_verified),
+		    is_onboarded   = COALESCE(:is_onboarded,   is_onboarded),
+		    updated_at     = NOW()
+		WHERE id = :id
 		RETURNING *`
 
-	user.ID = userID
-	rows, err := sqlx.NamedQueryContext(ctx, tx, query, user)
+	input.ID = userID
+	rows, err := sqlx.NamedQueryContext(ctx, tx, query, input)
 	if err != nil {
 		return nil, fmt.Errorf("update user tx: %w", err)
 	}

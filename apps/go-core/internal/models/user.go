@@ -18,9 +18,20 @@ type User struct {
 	Image         *string   `db:"image"          json:"image,omitempty"`
 	Phone         *string   `db:"phone"          json:"phone,omitempty"`
 	Role          UserRole  `db:"role"           json:"role"`
-	Onboarded     bool      `db:"onboarded"      json:"onboarded"`
+	BusinessID    *string   `db:"business_id"    json:"business_id,omitempty"`
+	Onboarded     bool      `db:"is_onboarded"   json:"is_onboarded"`
 	CreatedAt     time.Time `db:"created_at"     json:"created_at"`
 	UpdatedAt     time.Time `db:"updated_at"     json:"updated_at"`
+}
+
+type UserUpdate struct {
+	ID            string    `db:"id"`
+	Name          *string   `db:"name"`
+	Email         *string   `db:"email"`
+	Image         *string   `db:"image"`
+	Role          *UserRole `db:"role"`
+	EmailVerified *bool     `db:"email_verified"`
+	Onboarded     *bool     `db:"is_onboarded"`
 }
 
 type UserProfile struct {

@@ -8,14 +8,11 @@ const (
 	BusinessTypeProduct BusinessType = "product"
 	BusinessTypeService BusinessType = "service"
 	BusinessTypeBoth    BusinessType = "both"
-
-	
 )
 
 type Business struct {
 	ID          string       `db:"id"          json:"id"`
 	Name        string       `db:"name"        json:"name"`
-	Slug        string       `db:"slug"        json:"slug"`
 	Description *string      `db:"description" json:"description,omitempty"`
 	Logo        *string      `db:"logo"        json:"logo,omitempty"`
 	Website     *string      `db:"website"     json:"website,omitempty"`
@@ -24,12 +21,10 @@ type Business struct {
 	City        *string      `db:"city"        json:"city,omitempty"`
 	Country     string       `db:"country"     json:"country"`
 	Type        BusinessType `db:"type"        json:"type"`
-	// Plan is intentionally absent — fetch via business_subscriptions → plans
-	CreatedAt time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt time.Time `db:"updated_at" json:"updated_at"`
+	CreatedAt   time.Time    `db:"created_at" json:"created_at"`
+	UpdatedAt   time.Time    `db:"updated_at" json:"updated_at"`
 }
 
-// BusinessUpdate holds mutable fields for PATCH-style updates.
 type BusinessUpdate struct {
 	Name        *string
 	Description *string
@@ -40,4 +35,9 @@ type BusinessUpdate struct {
 	City        *string
 	Country     *string
 	Type        *BusinessType
+}
+
+type BusinessWithMembers struct {
+	Business Business
+	Member   BusinessMember
 }

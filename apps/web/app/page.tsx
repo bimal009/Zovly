@@ -1,16 +1,11 @@
 import Plans from "@/features/plans/components/Plans";
-import { auth } from "@/lib/auth";
-import { headers } from "next/headers";
-import React from "react";
+import { Navbar } from "@/components/navbar";
 
-const page = async () => {
-  const session = await auth.api.getSession({ headers: await headers() });
-  console.log(session?.session.token);
+export default function Page() {
   return (
-    <div>
+    <>
+      <Navbar />
       <Plans />
-    </div>
+    </>
   );
-};
-
-export default page;
+}

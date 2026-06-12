@@ -1,0 +1,27 @@
+services:
+  redis:
+    image: redis:alpine
+    container_name: zovly-redis
+    ports:
+      - "6379:6379" # exposes to host so your Go app and RedisInsight can connect
+    volumes:
+      - redis-data:/data
+    networks:
+      - zovly-network
+    restart: unless-stopped
+
+  redisinsight:
+    image: redis/redisinsight:latest
+    container_name: zovly-redisinsight
+    ports:
+      - "5540:5540" # open http://localhost:5540 in browser
+    networks:
+      - zovly-network
+    restart: unless-stopped
+
+volumes:
+  redis-data:
+
+networks:
+  zovly-network:
+    driver: bridge

@@ -19,7 +19,7 @@ type UploadStatus = "uploading" | "done" | "error";
 
 interface UploadEntry {
   id: string;
-  file: File;
+  file?: File; // undefined for pre-existing (already-uploaded) images
   preview: string;
   status: UploadStatus;
   url?: string;
@@ -40,6 +40,8 @@ export interface ImageUploaderProps {
   className?: string;
   /** Label shown above the uploader */
   label?: string;
+  /** Pre-existing CDN URLs to display on mount (e.g. when editing a record) */
+  initialUrls?: string[];
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -94,10 +96,20 @@ export const ImageUploader = React.forwardRef<
       onUploadsChange,
       className,
       label,
+      initialUrls,
     },
     ref,
   ) => {
-    const [entries, setEntries] = useState<UploadEntry[]>([]);
+    const [entries, setEntries] = useState<UploadEntry[]>(() =>
+      initialUrls && initialUrls.length > 0
+        ? initialUrls.map((url) => ({
+            id: genId(),
+            preview: url,
+            status: "done" as const,
+            url,
+          }))
+        : [],
+    );
     const [isDragging, setIsDragging] = useState(false);
     const [validationError, setValidationError] = useState<string | null>(null);
     const inputRef = useRef<HTMLInputElement>(null);
@@ -185,6 +197,7 @@ export const ImageUploader = React.forwardRef<
 
     const retryUpload = useCallback(
       (entry: UploadEntry) => {
+        if (!entry.file) return;
         setEntries((prev) =>
           prev.map((e) =>
             e.id === entry.id
@@ -463,7 +476,7 @@ export const ImageUploader = React.forwardRef<
               >
                 <img
                   src={entry.preview}
-                  alt={entry.file.name}
+                  alt={entry.file?.name ?? "image"}
                   className="w-full h-full object-cover"
                 />
 
@@ -492,7 +505,7 @@ export const ImageUploader = React.forwardRef<
                 )}
 
                 {/* Subtle bottom scrim on hover for filename */}
-                {entry.status === "done" && (
+                {entry.status === "done" && entry.file?.name && (
                   <div className="absolute inset-x-0 bottom-0 px-1.5 pb-1 pt-4 bg-gradient-to-t from-black/55 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none">
                     <p className="text-[10px] text-white truncate font-medium">
                       {entry.file.name}
@@ -505,7 +518,7 @@ export const ImageUploader = React.forwardRef<
                   <button
                     type="button"
                     onClick={() => removeEntry(entry.id)}
-                    aria-label={`Remove ${entry.file.name}`}
+                    aria-label={`Remove ${entry.file?.name ?? "image"}`}
                     className={cn(
                       "absolute top-1.5 right-1.5 w-6 h-6 rounded-full",
                       "bg-background/95 border border-border shadow-md",

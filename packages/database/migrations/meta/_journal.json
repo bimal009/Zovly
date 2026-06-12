@@ -36,6 +36,41 @@
       "when": 1781100701479,
       "tag": "0004_calm_machine_man",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1781186081506,
+      "tag": "0005_amused_microchip",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1781193684876,
+      "tag": "0006_new_maestro",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1781254359532,
+      "tag": "0007_milky_firedrake",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1781271320370,
+      "tag": "0008_natural_stranger",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1781286726997,
+      "tag": "0009_bright_stardust",
+      "breakpoints": true
     }
   ]
 }

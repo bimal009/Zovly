@@ -1,3 +1,4 @@
+// pkg/responses/responses.go — add paginated response
 package responses
 
 type Response[T any] struct {
@@ -5,6 +6,29 @@ type Response[T any] struct {
 	Message string `json:"message"`
 	Error   string `json:"error,omitempty"`
 	Data    T      `json:"data,omitempty"`
+}
+
+type PaginatedResponse[T any] struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+	Error   string `json:"error,omitempty"`
+	Data    T      `json:"data,omitempty"`
+	Meta    Meta   `json:"meta"`
+}
+
+type Meta struct {
+	Total  int `json:"total"`
+	Limit  int `json:"limit"`
+	Offset int `json:"offset"`
+}
+
+func Paginated[T any](message string, data T, total, limit, offset int) *PaginatedResponse[T] {
+	return &PaginatedResponse[T]{
+		Success: true,
+		Message: message,
+		Data:    data,
+		Meta:    Meta{Total: total, Limit: limit, Offset: offset},
+	}
 }
 
 func Success[T any](message string, data T) *Response[T] {
