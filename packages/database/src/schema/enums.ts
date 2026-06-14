@@ -1,5 +1,23 @@
 import { pgEnum } from "drizzle-orm/pg-core";
 
+export const platformEnum = pgEnum("platform", [
+  "instagram",
+  "facebook",
+  "whatsapp",
+  "tiktok",
+]);
+
+export const messageDirectionEnum = pgEnum("message_direction", ["in", "out"]);
+
+export const messageSenderEnum = pgEnum("message_sender", ["ai", "human"]);
+
+export const messageMediaTypeEnum = pgEnum("message_media_type", [
+  "image",
+  "video",
+  "audio",
+  "document",
+]);
+
 export const billingCycleEnum = pgEnum("billing_cycle", ["monthly", "yearly"]);
 
 export const planStatusEnum = pgEnum("plan_status", [

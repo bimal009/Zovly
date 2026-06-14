@@ -13,6 +13,7 @@ func RegisterAll(
 	businessHandler *handler.BusinessHandler,
 	productHandler *handler.ProductHandler,
 	serviceHandler *handler.ServiceHandler,
+	faqHandler *handler.FaqHandler,
 	authMiddleware gin.HandlerFunc,
 	businessMiddleware gin.HandlerFunc,
 ) {
@@ -31,29 +32,33 @@ func RegisterAll(
 	business.GET("/", businessHandler.Get)
 	business.POST("/", businessHandler.Create)
 
-	// ── products ──────────────────────────────────────────────────────────
-	// authMiddleware  → valid session
-	// businessMiddleware → sets businessID on ctx, verifies ownership
 	products := api.Group("/products")
 	products.Use(authMiddleware, businessMiddleware)
 	{
 		products.POST("", productHandler.Create)
 		products.GET("", productHandler.List)
-		products.GET("/low-stock", productHandler.LowStock) // before /:id or gin matches it
+		products.GET("/low-stock", productHandler.LowStock)
 		products.GET("/:id", productHandler.GetByID)
 		products.PATCH("/:id", productHandler.Update)
 		products.DELETE("/:id", productHandler.Delete)
 	}
 
-	// ── services ──────────────────────────────────────────────────────────
 	services := api.Group("/services")
 	services.Use(authMiddleware, businessMiddleware)
 	{
 		services.POST("", serviceHandler.Create)
 		services.GET("", serviceHandler.List)
-		services.GET("/ai-context", serviceHandler.ListForAIContext) // before /:id
+		services.GET("/ai-context", serviceHandler.ListForAIContext)
 		services.GET("/:id", serviceHandler.GetByID)
 		services.PATCH("/:id", serviceHandler.Update)
 		services.DELETE("/:id", serviceHandler.Delete)
+	}
+
+	// ── faqs ──────────────────────────────────────────────────────────────
+	faqs := api.Group("/faqs")
+	faqs.Use(authMiddleware, businessMiddleware)
+	{
+		faqs.POST("/create", faqHandler.Create)
+		faqs.GET("/all", faqHandler.GetAll)
 	}
 }

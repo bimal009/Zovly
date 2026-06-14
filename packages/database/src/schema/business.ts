@@ -12,6 +12,7 @@ import { businessMembers } from "./members";
 import { appConnections } from "./apps";
 import { products } from "./products";
 import { services } from "./services";
+import { policies } from "./policies";
 
 export const businessTypeEnum = pgEnum("business_type", [
   "product",
@@ -53,6 +54,7 @@ export const businessRelations = relations(business, ({ many, one }) => ({
   }),
   products: many(products),
   services: many(services),
+  policies: many(policies),
 }));
 export type Business = typeof business.$inferSelect;
 export type NewBusiness = typeof business.$inferInsert;

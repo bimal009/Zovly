@@ -13,6 +13,7 @@ type App struct {
 	Env          string   `env:"APP_ENV" envDefault:"production"`
 	FrontendURL  string   `env:"FRONTEND_URL" envDefault:"http://localhost:3000"`
 	AllowOrigins []string `env:"ALLOW_ORIGINS"   envDefault:"http://localhost:3000"`
+	AIServiceURL string   `env:"AI_SERVICE_URL" envDefault:"http://localhost:80"`
 }
 
 type DB struct {
@@ -57,10 +58,10 @@ type RedisConfig struct {
 // }
 
 type PaddleConfig struct {
-	APISecret      string `env:"PADDLE_SECRET_KEY,required"`
-	WebhookSecret  string `env:"PADDLE_WEBHOOK_SECRET,required"`
-	ClientSecret string `env:"PADDLE_CLIENT_SECRET,required"`
-	}
+	APISecret     string `env:"PADDLE_SECRET_KEY,required"`
+	WebhookSecret string `env:"PADDLE_WEBHOOK_SECRET,required"`
+	ClientSecret  string `env:"PADDLE_CLIENT_SECRET,required"`
+}
 type Config struct {
 	App      App
 	DB       DB
@@ -68,7 +69,7 @@ type Config struct {
 	OAuth    OAuthConfig
 	ImageKit ImageKit
 	Paddle   PaddleConfig
-	Redis RedisConfig
+	Redis    RedisConfig
 	// Resend   ResendConfig
 	// Asynq    AsynqConfig
 }

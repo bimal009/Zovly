@@ -30,7 +30,6 @@ export const knowledgeChunks = pgTable(
     chunkIndex: integer("chunk_index").default(0).notNull(),
     content: text("content").notNull(), // clean chunk text (no e5 prefix)
     embedding: vector("embedding", { dimensions: 1024 }).notNull(),
-    tokenCount: integer("token_count"), // precomputed for the RAG token-budget fill
     metadata: jsonb("metadata"), // faq: { question }; post: { url, publishedAt }
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },

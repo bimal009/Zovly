@@ -8,7 +8,8 @@ import {
   index,
 } from "drizzle-orm/pg-core";
 import { business } from "./business";
-import { messages, platformEnum } from "./messages";
+import { messages } from "./messages";
+import { platformEnum } from "./enums";
 import { relations } from "drizzle-orm";
 
 export const conversations = pgTable(

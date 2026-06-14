@@ -1,5 +1,4 @@
 import {
-  pgEnum,
   pgTable,
   text,
   timestamp,
@@ -10,24 +9,14 @@ import {
 import { relations } from "drizzle-orm";
 import { business } from "./business";
 import { conversations } from "./conversations";
+import {
+  platformEnum,
+  messageDirectionEnum,
+  messageSenderEnum,
+  messageMediaTypeEnum,
+} from "./enums";
 
-export const platformEnum = pgEnum("platform", [
-  "instagram",
-  "facebook",
-  "whatsapp",
-  "tiktok",
-]);
-
-export const messageDirectionEnum = pgEnum("message_direction", ["in", "out"]);
-
-export const messageSenderEnum = pgEnum("message_sender", ["ai", "human"]);
-
-export const messageMediaTypeEnum = pgEnum("message_media_type", [
-  "image",
-  "video",
-  "audio",
-  "document",
-]);
+export { platformEnum, messageDirectionEnum, messageSenderEnum, messageMediaTypeEnum };
 
 // One thread per contact per platform per business
 

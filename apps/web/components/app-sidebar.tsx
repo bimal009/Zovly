@@ -9,6 +9,7 @@ import {
   IconBrandTiktok,
   IconBrandWhatsapp,
   IconBrandYoutube,
+  IconBuilding,
   IconCalendar,
   IconChartBar,
   IconCreditCard,
@@ -154,6 +155,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
     { title: "Bookings", url: `/${id}/bookings`, icon: IconCalendar },
     { title: "Products", url: `/${id}/products`, icon: IconPackage },
     { title: "Services", url: `/${id}/services`, icon: IconTools },
+    { title: "Business Info", url: `/${id}/business-info`, icon: IconBuilding },
   ];
 
   const navSecondary = [
