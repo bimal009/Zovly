@@ -8,7 +8,6 @@ import {
   IconBrandInstagram,
   IconBrandTiktok,
   IconBrandWhatsapp,
-  IconBrandYoutube,
   IconBuilding,
   IconCalendar,
   IconChartBar,
@@ -27,7 +26,11 @@ import {
   IconUserCircle,
   IconUsers,
 } from "@tabler/icons-react";
-import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/ui/avatar";
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+} from "@repo/ui/components/ui/avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -52,15 +55,15 @@ import {
 } from "@repo/ui/components/ui/sidebar";
 import { useSession, signOut } from "@/lib/auth-client";
 
-const PLATFORMS = [
-  { name: "Instagram", url: "#", icon: IconBrandInstagram },
-  { name: "TikTok", url: "#", icon: IconBrandTiktok },
-  { name: "Facebook", url: "#", icon: IconBrandFacebook },
-  { name: "WhatsApp", url: "#", icon: IconBrandWhatsapp },
-  { name: "YouTube", url: "#", icon: IconBrandYoutube },
-];
-
-function NavUser({ name, email, avatar }: { name: string; email: string; avatar?: string | null }) {
+function NavUser({
+  name,
+  email,
+  avatar,
+}: {
+  name: string;
+  email: string;
+  avatar?: string | null;
+}) {
   const { isMobile } = useSidebar();
   const initials = name
     .split(" ")
@@ -80,11 +83,15 @@ function NavUser({ name, email, avatar }: { name: string; email: string; avatar?
             >
               <Avatar className="h-8 w-8 rounded-lg">
                 <AvatarImage src={avatar ?? ""} alt={name} />
-                <AvatarFallback className="rounded-lg text-xs">{initials}</AvatarFallback>
+                <AvatarFallback className="rounded-lg text-xs">
+                  {initials}
+                </AvatarFallback>
               </Avatar>
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-medium">{name}</span>
-                <span className="truncate text-xs text-muted-foreground">{email}</span>
+                <span className="truncate text-xs text-muted-foreground">
+                  {email}
+                </span>
               </div>
               <IconDotsVertical className="ml-auto size-4" />
             </SidebarMenuButton>
@@ -99,11 +106,15 @@ function NavUser({ name, email, avatar }: { name: string; email: string; avatar?
               <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
                 <Avatar className="h-8 w-8 rounded-lg">
                   <AvatarImage src={avatar ?? ""} alt={name} />
-                  <AvatarFallback className="rounded-lg text-xs">{initials}</AvatarFallback>
+                  <AvatarFallback className="rounded-lg text-xs">
+                    {initials}
+                  </AvatarFallback>
                 </Avatar>
                 <div className="grid flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-medium">{name}</span>
-                  <span className="truncate text-xs text-muted-foreground">{email}</span>
+                  <span className="truncate text-xs text-muted-foreground">
+                    {email}
+                  </span>
                 </div>
               </div>
             </DropdownMenuLabel>
@@ -125,7 +136,15 @@ function NavUser({ name, email, avatar }: { name: string; email: string; avatar?
             <DropdownMenuSeparator />
             <DropdownMenuItem
               className="cursor-pointer text-destructive focus:text-destructive"
-              onClick={() => signOut({ fetchOptions: { onSuccess: () => { window.location.href = "/"; } } })}
+              onClick={() =>
+                signOut({
+                  fetchOptions: {
+                    onSuccess: () => {
+                      window.location.href = "/";
+                    },
+                  },
+                })
+              }
             >
               <IconLogout />
               Log out
@@ -163,6 +182,17 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
     { title: "Help & Support", url: "#", icon: IconHelp },
   ];
 
+  const platforms = [
+    { name: "Instagram", url: "#", icon: IconBrandInstagram },
+    { name: "TikTok", url: "#", icon: IconBrandTiktok },
+    {
+      name: "Facebook",
+      url: `/${id}/connections/facebook`,
+      icon: IconBrandFacebook,
+    },
+    { name: "WhatsApp", url: "#", icon: IconBrandWhatsapp },
+  ];
+
   return (
     <Sidebar collapsible="offcanvas" {...props}>
       <SidebarHeader>
@@ -187,10 +217,15 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
           <SidebarGroupContent>
             <SidebarMenu>
               {navMain.map((item) => {
-                const isActive = pathname === item.url || pathname.startsWith(item.url + "/");
+                const isActive =
+                  pathname === item.url || pathname.startsWith(item.url + "/");
                 return (
                   <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton asChild tooltip={item.title} isActive={isActive}>
+                    <SidebarMenuButton
+                      asChild
+                      tooltip={item.title}
+                      isActive={isActive}
+                    >
                       <Link href={item.url}>
                         <item.icon />
                         <span>{item.title}</span>
@@ -208,16 +243,24 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
           <SidebarGroupLabel>Platforms</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {PLATFORMS.map((item) => (
-                <SidebarMenuItem key={item.name}>
-                  <SidebarMenuButton asChild tooltip={item.name}>
-                    <a href={item.url}>
-                      <item.icon />
-                      <span>{item.name}</span>
-                    </a>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {platforms.map((item) => {
+                const isActive =
+                  pathname === item.url || pathname.startsWith(item.url + "/");
+                return (
+                  <SidebarMenuItem key={item.name}>
+                    <SidebarMenuButton
+                      asChild
+                      tooltip={item.name}
+                      isActive={isActive}
+                    >
+                      <Link href={item.url}>
+                        <item.icon />
+                        <span>{item.name}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

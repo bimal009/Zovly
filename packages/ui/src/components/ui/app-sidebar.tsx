@@ -7,7 +7,6 @@ import {
   IconBrandInstagram,
   IconBrandTiktok,
   IconBrandWhatsapp,
-  IconBrandYoutube,
   IconCalendar,
   IconChartBar,
   IconDashboard,
@@ -57,7 +56,6 @@ const data = {
     { name: "TikTok", url: "#", icon: IconBrandTiktok },
     { name: "Facebook", url: "#", icon: IconBrandFacebook },
     { name: "WhatsApp", url: "#", icon: IconBrandWhatsapp },
-    { name: "YouTube", url: "#", icon: IconBrandYoutube },
   ],
   navSecondary: [
     { title: "Settings", url: "#", icon: IconSettings },

@@ -20,6 +20,7 @@ type businessService struct {
 	businessRepo       repository.BusinessRepo
 	businessMemberRepo repository.BusinessMemberRepo
 	userRepo           repository.UserRepo
+	appRepo            repository.AppRepo
 	log                *slog.Logger
 }
 
@@ -29,6 +30,7 @@ func NewBusinessService(
 	businessMemberRepo repository.BusinessMemberRepo,
 	userRepo repository.UserRepo,
 	log *slog.Logger,
+	appRepo repository.AppRepo,
 ) BusinessService {
 	return &businessService{
 		db:                 db,
@@ -36,6 +38,7 @@ func NewBusinessService(
 		businessMemberRepo: businessMemberRepo,
 		userRepo:           userRepo,
 		log:                log,
+		appRepo:            appRepo,
 	}
 }
 
@@ -80,6 +83,10 @@ func (s *businessService) Create(ctx context.Context, input models.Business, use
 	_, err = s.businessMemberRepo.CreateTx(ctx, tx, member)
 	if err != nil {
 		return nil, fmt.Errorf("create business member: %w", err)
+	}
+
+	if err = s.appRepo.Create(ctx, tx, created.ID); err != nil {
+		return nil, fmt.Errorf("create app connections: %w", err)
 	}
 
 	_, err = s.userRepo.UpdateTx(ctx, tx, userId, models.UserUpdate{

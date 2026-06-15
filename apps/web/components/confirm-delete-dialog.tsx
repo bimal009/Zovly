@@ -18,6 +18,7 @@ interface ConfirmDeleteDialogProps {
   description?: React.ReactNode;
   onConfirm: () => void;
   loading?: boolean;
+  confirmText?: string;
 }
 
 export function ConfirmDeleteDialog({
@@ -27,6 +28,7 @@ export function ConfirmDeleteDialog({
   description = "This action cannot be undone.",
   onConfirm,
   loading = false,
+  confirmText = "Delete",
 }: ConfirmDeleteDialogProps) {
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
@@ -44,7 +46,7 @@ export function ConfirmDeleteDialog({
             onClick={onConfirm}
             disabled={loading}
           >
-            {loading ? "Deleting…" : "Delete"}
+            {loading ? `${confirmText}…` : confirmText}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

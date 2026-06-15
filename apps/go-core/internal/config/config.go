@@ -9,11 +9,12 @@ import (
 )
 
 type App struct {
-	Port         string   `env:"APP_PORT,required"`
-	Env          string   `env:"APP_ENV" envDefault:"production"`
-	FrontendURL  string   `env:"FRONTEND_URL" envDefault:"http://localhost:3000"`
-	AllowOrigins []string `env:"ALLOW_ORIGINS"   envDefault:"http://localhost:3000"`
-	AIServiceURL string   `env:"AI_SERVICE_URL" envDefault:"http://localhost:80"`
+	Port          string   `env:"APP_PORT,required"`
+	Env           string   `env:"APP_ENV" envDefault:"production"`
+	FrontendURL   string   `env:"FRONTEND_URL" envDefault:"http://localhost:3000"`
+	AllowOrigins  []string `env:"ALLOW_ORIGINS"   envDefault:"http://localhost:3000"`
+	AIServiceURL  string   `env:"AI_SERVICE_URL" envDefault:"http://localhost:80"`
+	EncryptionKey string   `env:"ENCRYPTION_KEY"`
 }
 
 type DB struct {
@@ -24,6 +25,17 @@ type DB struct {
 	ConnIdleTime time.Duration `env:"DB_CONN_IDLE_TIME"     envDefault:"5m"`
 }
 
+type Meta struct {
+	AppID       string `env:"META_APP_ID,required"`
+	RedirectURI string `env:"META_REDIRECT_URI,required"`
+	AppSecret   string `env:"META_APP_SECRET,required"`
+}
+
+type Instagram struct {
+	AppID       string `env:"IG_APP_ID,required"`
+	AppSecret   string `env:"IG_APP_SECRET,required"`
+	RedirectURI string `env:"IG_REDIRECT_URI,required"`
+}
 type ImageKit struct {
 	PublicKey   string `env:"IMAGEKIT_PUBLIC_KEY,required"`
 	PrivateKey  string `env:"IMAGEKIT_PRIVATE_KEY,required"`
@@ -63,13 +75,15 @@ type PaddleConfig struct {
 	ClientSecret  string `env:"PADDLE_CLIENT_SECRET,required"`
 }
 type Config struct {
-	App      App
-	DB       DB
-	Session  Session
-	OAuth    OAuthConfig
-	ImageKit ImageKit
-	Paddle   PaddleConfig
-	Redis    RedisConfig
+	App       App
+	DB        DB
+	Session   Session
+	OAuth     OAuthConfig
+	ImageKit  ImageKit
+	Paddle    PaddleConfig
+	Redis     RedisConfig
+	Meta      Meta
+	Instagram Instagram
 	// Resend   ResendConfig
 	// Asynq    AsynqConfig
 }

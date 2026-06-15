@@ -56,12 +56,15 @@ func main() {
 	serviceRepo := repository.NewServiceRepo(db)
 	faqRepo := repository.NewFaqRepo(db)
 	knowledgeRepo := repository.NewBusinessKnowledgeRepo(db)
+	appRepo := repository.NewAppRepo(db)
+	appCredentialRepo := repository.NewAppCredentialRepo(db)
 
 	planService := service.NewPlanService(db, rdb, slog, planRepo)
-	businessService := service.NewBusinessService(db, businessRepo, businessMemberRepo, userRepo, slog)
+	businessService := service.NewBusinessService(db, businessRepo, businessMemberRepo, userRepo, slog, appRepo)
 	productService := service.NewProductService(db, rdb, slog, productRepo)
 	serviceService := service.NewServiceService(db, rdb, slog, serviceRepo)
 	faqService := service.NewFaqService(faqRepo, knowledgeRepo, slog, db, *cfg)
+	facebookService := service.NewFacebookService(db, appCredentialRepo, appRepo, cfg, slog)
 
 	planHandler := handler.NewPlanHandler(planService)
 	paddleHandler := handler.NewPaddleHandler(*cfg, subRepo, planRepo, payRepo)
@@ -70,6 +73,7 @@ func main() {
 	productHandler := handler.NewProductHandler(productService)
 	serviceHandler := handler.NewServiceHandler(serviceService)
 	faqHandler := handler.NewFaqHandler(faqService)
+	facebookHandler := handler.NewFacebookHandler(facebookService, rdb, cfg, slog)
 
 	authMiddleware := middlewares.RequireAuth(sessionRepo)
 	businessMiddleware := middlewares.RequireBusiness(businessService, memberInviteRepo)
@@ -91,7 +95,7 @@ func main() {
 	r.Use(limiter.LimitMiddleWare())
 
 	api := r.Group("/api/v1")
-	routes.RegisterAll(api, planHandler, paddleHandler, imageHandler, businessHandler, productHandler, serviceHandler, faqHandler, authMiddleware, businessMiddleware)
+	routes.RegisterAll(api, planHandler, paddleHandler, imageHandler, businessHandler, productHandler, serviceHandler, faqHandler, facebookHandler, authMiddleware, businessMiddleware)
 	httpServer := &http.Server{
 		Addr:         ":" + cfg.App.Port,
 		Handler:      r,

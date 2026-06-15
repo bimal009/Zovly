@@ -15,3 +15,4 @@ export * from "./conversations";
 export * from "./messages";
 export * from "./messageEmbeddings";
 export * from "./memberInvites";
+export * from "./appCredentials";

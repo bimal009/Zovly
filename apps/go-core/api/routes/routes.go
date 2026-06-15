@@ -14,8 +14,10 @@ func RegisterAll(
 	productHandler *handler.ProductHandler,
 	serviceHandler *handler.ServiceHandler,
 	faqHandler *handler.FaqHandler,
+	facebookHandler *handler.FacebookHandler,
 	authMiddleware gin.HandlerFunc,
 	businessMiddleware gin.HandlerFunc,
+
 ) {
 	plans := api.Group("/plans")
 	plans.GET("/all", planHandler.GetAll)
@@ -31,7 +33,11 @@ func RegisterAll(
 	business.Use(authMiddleware)
 	business.GET("/", businessHandler.Get)
 	business.POST("/", businessHandler.Create)
-
+	auth := api.Group("/auth")
+	{
+		auth.GET("/facebook/connect", authMiddleware, businessMiddleware, facebookHandler.ConnectFacebook)
+		auth.GET("/facebook/callback", facebookHandler.FacebookCallback)
+	}
 	products := api.Group("/products")
 	products.Use(authMiddleware, businessMiddleware)
 	{
@@ -60,5 +66,16 @@ func RegisterAll(
 	{
 		faqs.POST("/create", faqHandler.Create)
 		faqs.GET("/all", faqHandler.GetAll)
+	}
+
+	connections := api.Group("/connections")
+	connections.Use(authMiddleware, businessMiddleware)
+	{
+		connections.GET("/facebook", facebookHandler.GetConnectionStatus)
+
+		fbPages := connections.Group("/facebook/pages")
+		{
+			fbPages.PATCH("/:pageId/toggle", facebookHandler.ToggleFacebookPage)
+		}
 	}
 }

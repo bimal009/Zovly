@@ -10,7 +10,7 @@ const metrics: StatCardItem[] = [
     trend: "+18.4%",
     trendUp: true,
     description: "Cross-platform this week",
-    sub: "Instagram, TikTok, Facebook, YouTube",
+    sub: "Instagram, TikTok, Facebook",
   },
   {
     label: "Total Engagement",
