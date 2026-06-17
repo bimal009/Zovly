@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -64,13 +65,13 @@ func (h *InstagramHandler) ConnectInstagram(c *gin.Context) {
 		"response_type": {"code"},
 	}
 	authURL := "https://www.instagram.com/oauth/authorize?" + params.Encode()
-	c.Redirect(http.StatusTemporaryRedirect, authURL)
+	c.JSON(http.StatusOK, responses.Success("instagram oauth url", gin.H{"url": authURL}))
 }
 
 type igTokenResponse struct {
-	AccessToken string `json:"access_token"`
-	UserID      string `json:"user_id"`
-	Permissions string `json:"permissions,omitempty"`
+	AccessToken string   `json:"access_token"`
+	UserID      int64    `json:"user_id"`
+	Permissions []string `json:"permissions,omitempty"`
 }
 
 func (h *InstagramHandler) exchangeCodeForToken(ctx context.Context, code string) (*igTokenResponse, error) {
@@ -103,6 +104,40 @@ func (h *InstagramHandler) exchangeCodeForToken(ctx context.Context, code string
 	var result igTokenResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("decode ig token response: %w", err)
+	}
+	return &result, nil
+}
+
+type igProfileResponse struct {
+	ID       string `json:"id"`
+	Username string `json:"username"`
+}
+
+func (h *InstagramHandler) fetchUserProfile(ctx context.Context, accessToken string) (*igProfileResponse, error) {
+	params := url.Values{
+		"fields":       {"id,username"},
+		"access_token": {accessToken},
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		"https://graph.instagram.com/me?"+params.Encode(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("build ig profile request: %w", err)
+	}
+
+	resp, err := h.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("call ig profile endpoint: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("ig profile fetch failed (%d): %s", resp.StatusCode, body)
+	}
+
+	var result igProfileResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode ig profile response: %w", err)
 	}
 	return &result, nil
 }
@@ -161,20 +196,48 @@ func (h *InstagramHandler) InstagramCallback(c *gin.Context) {
 
 	shortLived, err := h.exchangeCodeForToken(ctx, code)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, responses.InternalServerError("token exchange failed"))
+		h.log.Error("instagram token exchange failed", "business_id", businessID, "error", err)
+		c.JSON(http.StatusInternalServerError, responses.InternalServerError(err.Error()))
 		return
 	}
 
 	longLived, err := h.exchangeForLongLivedToken(ctx, shortLived.AccessToken)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, responses.InternalServerError("long-lived token exchange failed"))
+		h.log.Error("instagram long-lived token exchange failed", "business_id", businessID, "error", err)
+		c.JSON(http.StatusInternalServerError, responses.InternalServerError(err.Error()))
 		return
 	}
 
-	if err := h.instagramService.SaveConnection(ctx, businessID, shortLived.UserID, longLived); err != nil {
+	profile, err := h.fetchUserProfile(ctx, longLived.AccessToken)
+	if err != nil {
+		h.log.Error("failed to fetch instagram profile", "business_id", businessID, "error", err)
+		c.JSON(http.StatusInternalServerError, responses.InternalServerError("failed to fetch instagram profile"))
+		return
+	}
+
+	igUserID := strconv.FormatInt(shortLived.UserID, 10)
+	if err := h.instagramService.SaveConnection(ctx, businessID, igUserID, profile.Username, longLived); err != nil {
+		h.log.Error("failed to save instagram connection", "business_id", businessID, "error", err)
 		c.JSON(http.StatusInternalServerError, responses.InternalServerError("failed to save connection"))
 		return
 	}
 
-	c.Redirect(http.StatusTemporaryRedirect, h.cfg.App.FrontendURL+"/settings/connections?instagram=connected")
+	c.Redirect(http.StatusTemporaryRedirect, h.cfg.App.FrontendURL+"/"+businessID+"/connections/instagram")
+}
+
+func (h *InstagramHandler) GetConnectionStatus(c *gin.Context) {
+	businessID, ok := businessIDFromCtx(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, responses.Unauthorized("unauthorized"))
+		return
+	}
+
+	status, err := h.instagramService.GetConnectionStatus(c.Request.Context(), businessID)
+	if err != nil {
+		h.log.Error("failed to get instagram connection status", "business_id", businessID, "error", err)
+		c.JSON(http.StatusInternalServerError, responses.InternalServerError("failed to get connection status"))
+		return
+	}
+
+	c.JSON(http.StatusOK, responses.Success("instagram connection status", status))
 }

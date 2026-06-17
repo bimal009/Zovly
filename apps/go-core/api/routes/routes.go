@@ -15,6 +15,7 @@ func RegisterAll(
 	serviceHandler *handler.ServiceHandler,
 	faqHandler *handler.FaqHandler,
 	facebookHandler *handler.FacebookHandler,
+	instagramHandler *handler.InstagramHandler,
 	authMiddleware gin.HandlerFunc,
 	businessMiddleware gin.HandlerFunc,
 
@@ -37,6 +38,8 @@ func RegisterAll(
 	{
 		auth.GET("/facebook/connect", authMiddleware, businessMiddleware, facebookHandler.ConnectFacebook)
 		auth.GET("/facebook/callback", facebookHandler.FacebookCallback)
+		auth.GET("/instagram/connect", authMiddleware, businessMiddleware, instagramHandler.ConnectInstagram)
+		auth.GET("/instagram/callback", instagramHandler.InstagramCallback)
 	}
 	products := api.Group("/products")
 	products.Use(authMiddleware, businessMiddleware)
@@ -72,6 +75,7 @@ func RegisterAll(
 	connections.Use(authMiddleware, businessMiddleware)
 	{
 		connections.GET("/facebook", facebookHandler.GetConnectionStatus)
+		connections.GET("/instagram", instagramHandler.GetConnectionStatus)
 
 		fbPages := connections.Group("/facebook/pages")
 		{

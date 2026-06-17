@@ -183,7 +183,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
   ];
 
   const platforms = [
-    { name: "Instagram", url: "#", icon: IconBrandInstagram },
+    { name: "Instagram", url: `/${id}/connections/instagram`, icon: IconBrandInstagram },
     { name: "TikTok", url: "#", icon: IconBrandTiktok },
     {
       name: "Facebook",

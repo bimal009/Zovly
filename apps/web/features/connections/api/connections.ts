@@ -1,6 +1,6 @@
 import { axiosInstance } from "@/lib/axios";
 import { ApiResponse } from "@/lib/types/apiResponse";
-import { FacebookConnectionStatus } from "../types/connections";
+import { FacebookConnectionStatus, InstagramConnectionStatus } from "../types/connections";
 
 export const getFacebookConnectionStatus = async () => {
   const res = await axiosInstance.get<ApiResponse<FacebookConnectionStatus>>(
@@ -21,4 +21,18 @@ export const toggleFacebookPage = async (pageId: string) => {
     `/api/v1/connections/facebook/pages/${pageId}/toggle`,
   );
   return res.data;
+};
+
+export const getInstagramConnectionStatus = async () => {
+  const res = await axiosInstance.get<ApiResponse<InstagramConnectionStatus>>(
+    "/api/v1/connections/instagram",
+  );
+  return res.data;
+};
+
+export const getInstagramConnectURL = async (): Promise<string> => {
+  const res = await axiosInstance.get<ApiResponse<{ url: string }>>(
+    "/api/v1/auth/instagram/connect",
+  );
+  return res.data.data.url;
 };

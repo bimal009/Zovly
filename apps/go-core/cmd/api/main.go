@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/bimal009/Zovly/api/routes"
+	"github.com/bimal009/Zovly/cmd/workers"
 	"github.com/bimal009/Zovly/internal/config"
 	"github.com/bimal009/Zovly/internal/config/database"
 	"github.com/bimal009/Zovly/internal/config/redis"
@@ -65,6 +66,7 @@ func main() {
 	serviceService := service.NewServiceService(db, rdb, slog, serviceRepo)
 	faqService := service.NewFaqService(faqRepo, knowledgeRepo, slog, db, *cfg)
 	facebookService := service.NewFacebookService(db, appCredentialRepo, appRepo, cfg, slog)
+	instagramService := service.NewInstagramService(db, appCredentialRepo, appRepo, cfg, slog)
 
 	planHandler := handler.NewPlanHandler(planService)
 	paddleHandler := handler.NewPaddleHandler(*cfg, subRepo, planRepo, payRepo)
@@ -74,6 +76,7 @@ func main() {
 	serviceHandler := handler.NewServiceHandler(serviceService)
 	faqHandler := handler.NewFaqHandler(faqService)
 	facebookHandler := handler.NewFacebookHandler(facebookService, rdb, cfg, slog)
+	instagramHandler := handler.NewInstagramHandler(rdb, cfg, slog, instagramService)
 
 	authMiddleware := middlewares.RequireAuth(sessionRepo)
 	businessMiddleware := middlewares.RequireBusiness(businessService, memberInviteRepo)
@@ -95,7 +98,7 @@ func main() {
 	r.Use(limiter.LimitMiddleWare())
 
 	api := r.Group("/api/v1")
-	routes.RegisterAll(api, planHandler, paddleHandler, imageHandler, businessHandler, productHandler, serviceHandler, faqHandler, facebookHandler, authMiddleware, businessMiddleware)
+	routes.RegisterAll(api, planHandler, paddleHandler, imageHandler, businessHandler, productHandler, serviceHandler, faqHandler, facebookHandler, instagramHandler, authMiddleware, businessMiddleware)
 	httpServer := &http.Server{
 		Addr:         ":" + cfg.App.Port,
 		Handler:      r,
@@ -103,6 +106,9 @@ func main() {
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
+
+	igWorker := workers.NewRefreshInstagramWorker(instagramService, slog)
+	go igWorker.Run(ctx)
 
 	go func() {
 		slog.Info("server starting", "port", cfg.App.Port, "env", cfg.App.Env)

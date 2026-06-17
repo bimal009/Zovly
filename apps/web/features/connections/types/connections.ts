@@ -32,3 +32,8 @@ export type FacebookConnectionStatus = {
   connected: boolean;
   pages: ConnectedPage[];
 };
+
+export type InstagramConnectionStatus = {
+  connected: boolean;
+  account: ConnectedPage | null;
+};
