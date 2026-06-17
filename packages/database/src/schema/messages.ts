@@ -14,9 +14,15 @@ import {
   messageDirectionEnum,
   messageSenderEnum,
   messageMediaTypeEnum,
+  messageStatusEnum,
 } from "./enums";
 
-export { platformEnum, messageDirectionEnum, messageSenderEnum, messageMediaTypeEnum };
+export {
+  platformEnum,
+  messageDirectionEnum,
+  messageSenderEnum,
+  messageMediaTypeEnum,
+};
 
 // One thread per contact per platform per business
 
@@ -43,6 +49,11 @@ export const messages = pgTable(
 
     // Vectorized flag — py-ml sets this true after embedding
     isVectorized: boolean("is_vectorized").default(false).notNull(),
+    // messages table — add:
+    status: messageStatusEnum("status"), // null for inbound; set for outbound
+    errorMessage: text("error_message"), // failure reason when status = failed
+    sentToPlatformAt: timestamp("sent_to_platform_at"), // when Graph API accepted
+    platformMessageId: text("platform_message_id"), // Meta's returned message id
 
     sentAt: timestamp("sent_at").defaultNow().notNull(),
   },

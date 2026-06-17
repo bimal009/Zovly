@@ -29,7 +29,6 @@ export const messageEmbeddings = pgTable(
     // text that was embedded (message content or voice transcript)
     content: text("content").notNull(),
 
-    // nomic-embed-text-v2-moe — 768 dims
     embedding: vector("embedding", { dimensions: 1024 }).notNull(),
 
     createdAt: timestamp("created_at").defaultNow().notNull(),

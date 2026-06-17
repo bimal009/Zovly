@@ -13,7 +13,7 @@ type App struct {
 	Env           string   `env:"APP_ENV" envDefault:"production"`
 	FrontendURL   string   `env:"FRONTEND_URL" envDefault:"http://localhost:3000"`
 	AllowOrigins  []string `env:"ALLOW_ORIGINS"   envDefault:"http://localhost:3000"`
-	AIServiceURL  string   `env:"AI_SERVICE_URL" envDefault:"http://localhost:8081"`
+	AIServiceURL  string   `env:"AI_SERVICE_URL" envDefault:"http://localhost:8000"`
 	EncryptionKey string   `env:"ENCRYPTION_KEY"`
 }
 

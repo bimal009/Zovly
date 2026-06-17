@@ -44,3 +44,10 @@ export const paymentMethodEnum = pgEnum("payment_method", [
   "cash",
   "other",
 ]);
+// enums.ts
+export const messageStatusEnum = pgEnum("message_status", [
+  "pending", // outbound, generated, not yet sent
+  "sent", // Graph API accepted (200)
+  "failed", // Graph API rejected — see error
+  "skipped", // not sendable (e.g. 24h window closed)
+]);
