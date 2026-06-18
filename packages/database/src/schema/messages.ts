@@ -24,7 +24,6 @@ export {
   messageMediaTypeEnum,
 };
 
-// One thread per contact per platform per business
 
 export const messages = pgTable(
   "messages",

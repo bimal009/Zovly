@@ -6,3 +6,7 @@ class ChatRequest(BaseModel):
     platform: Literal['instagram', 'facebook', 'whatsapp', 'tiktok']
     thread_id: str | None = None 
     message: str
+
+
+class ChatEmbeddingRequest(BaseModel):
+    message:str
