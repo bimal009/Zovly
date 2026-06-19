@@ -20,6 +20,13 @@ func RegisterAll(
 	businessMiddleware gin.HandlerFunc,
 
 ) {
+	// Public webhook endpoints — no auth middleware (called by Meta servers)
+	webhook := api.Group("/webhook/meta")
+	{
+		webhook.GET("/facebook", facebookHandler.MetaWebhook)
+		webhook.POST("/facebook", facebookHandler.MetaWebhook)
+	}
+
 	plans := api.Group("/plans")
 	plans.GET("/all", planHandler.GetAll)
 
@@ -80,6 +87,11 @@ func RegisterAll(
 		fbPages := connections.Group("/facebook/pages")
 		{
 			fbPages.PATCH("/:pageId/toggle", facebookHandler.ToggleFacebookPage)
+		}
+
+		messengerPages := connections.Group("/messenger/pages")
+		{
+			messengerPages.POST("/:pageId/subscribe", facebookHandler.SubscribeMessengerWebhook)
 		}
 	}
 }

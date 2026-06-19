@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getFacebookConnectionStatus,
   getInstagramConnectionStatus,
+  subscribeMessengerPage,
   toggleFacebookPage,
 } from "../api/connections";
 
@@ -28,5 +29,20 @@ export const useInstagramConnectionStatus = () => {
   return useQuery({
     queryKey: [...CONNECTIONS_KEY, "instagram"],
     queryFn: getInstagramConnectionStatus,
+  });
+};
+
+export const useMessengerConnectionStatus = () => {
+  return useQuery({
+    queryKey: [...CONNECTIONS_KEY, "facebook"],
+    queryFn: getFacebookConnectionStatus,
+  });
+};
+
+export const useSubscribeMessengerPage = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (pageId: string) => subscribeMessengerPage(pageId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: [...CONNECTIONS_KEY, "facebook"] }),
   });
 };

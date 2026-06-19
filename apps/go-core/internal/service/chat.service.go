@@ -16,57 +16,72 @@ import (
 )
 
 type ChatService interface {
-	Chat(ctx context.Context, message string, convoId string, businessId string) error
 	FindOrCreate(ctx context.Context, tx *sqlx.Tx, conv models.CreateConversation) (*models.Conversation, error)
+	HandleInboundMessage(ctx context.Context, platform string, platformID string, event models.MessagingEvent) error
 }
 
 type chatService struct {
-	db               *sqlx.DB
-	messageEmbedRepo repository.MessageEmbeddingRepo
-	messageRepo      repository.MessageRepo
-	conversationRepo repository.ConversationRepo
-	cfg              config.Config
-	httpClient       *http.Client
-	rdb              *redis.Client
+	db                *sqlx.DB
+	messageEmbedRepo  repository.MessageEmbeddingRepo
+	messageRepo       repository.MessageRepo
+	conversationRepo  repository.ConversationRepo
+	appCredentialRepo repository.AppCredentialRepo
+	cfg               config.Config
+	httpClient        *http.Client
+	rdb               *redis.Client
 }
 
 func NewChatService(
 	db *sqlx.DB,
 	messageRepo repository.MessageRepo,
+	appCredentialRepo repository.AppCredentialRepo,
 	messageEmbedRepo repository.MessageEmbeddingRepo,
 	conversationRepo repository.ConversationRepo,
 	cfg config.Config,
 	rdb *redis.Client,
 ) ChatService {
 	return &chatService{
-		db:               db,
-		messageEmbedRepo: messageEmbedRepo,
-		messageRepo:      messageRepo,
-		conversationRepo: conversationRepo,
-		cfg:              cfg,
-		httpClient:       &http.Client{Timeout: 30 * time.Second},
-		rdb:              rdb,
+		db:                db,
+		messageEmbedRepo:  messageEmbedRepo,
+		messageRepo:       messageRepo,
+		conversationRepo:  conversationRepo,
+		appCredentialRepo: appCredentialRepo,
+		cfg:               cfg,
+		httpClient:        &http.Client{Timeout: 30 * time.Second},
+		rdb:               rdb,
 	}
 }
 
-func (s *chatService) Chat(ctx context.Context, message string, convoId string, businessId string) error {
+func (s *chatService) HandleInboundMessage(ctx context.Context, platform string, platformID string, event models.MessagingEvent) error {
+	cred, err := s.appCredentialRepo.GetByPlatformAccountID(ctx, platformID)
+	if err != nil {
+		return fmt.Errorf("get credential for page %s: %w", platformID, err)
+	}
+
 	tx, err := s.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback()
 
-	sender := models.MessageSenderAI
-	status := models.MessageStatusPending
+	conv, err := s.conversationRepo.FindOrCreate(ctx, tx, models.CreateConversation{
+		BusinessID: cred.BusinessID,
+		Platform:   "facebook",
+		ThreadID:   event.Sender.ID,
+		ContactID:  event.Sender.ID,
+	})
+	if err != nil {
+		return fmt.Errorf("find or create conversation: %w", err)
+	}
+
+	text := event.Message.Text
 	newMessage := models.CreateMessage{
-		ConversationID: convoId,
-		BusinessID:     businessId,
+		ConversationID: conv.ID,
+		BusinessID:     cred.BusinessID,
 		Direction:      models.MessageDirectionIn,
-		SentBy:         &sender,
-		Content:        &message,
-		MediaUrl:       nil,
-		MediaType:      nil,
-		Status:         &status,
+		SentBy:         nil,
+		Content:        &text,
+		Status:         nil,
 	}
 
 	insertedMsg, err := s.messageRepo.Create(ctx, tx, newMessage)
@@ -77,24 +92,15 @@ func (s *chatService) Chat(ctx context.Context, message string, convoId string, 
 	if _, err := s.rdb.XAdd(ctx, &redis.XAddArgs{
 		Stream: "chat:messages",
 		Values: map[string]interface{}{
-			"id":              insertedMsg.ID,
-			"conversation_id": insertedMsg.ConversationID,
+			"message_id":      insertedMsg.ID,
 			"business_id":     insertedMsg.BusinessID,
-			"content":         insertedMsg.Content,
-			"status":          insertedMsg.Status,
-			"direction":       insertedMsg.Direction,
-			"sent_by":         insertedMsg.SentBy,
-			"sent_at":         insertedMsg.SentAt.Unix(),
+			"conversation_id": insertedMsg.ConversationID,
 		},
 	}).Result(); err != nil {
 		return fmt.Errorf("publish message to stream: %w", err)
 	}
 
-	//after sucessful send we will increment count
-	messageSent, err := s.rdb.Set(ctx, "chat:messages", "0", 0).Result()
-
 	return tx.Commit()
-
 }
 
 func (s *chatService) FindOrCreate(ctx context.Context, tx *sqlx.Tx, conv models.CreateConversation) (*models.Conversation, error) {
@@ -134,3 +140,80 @@ func (s *chatService) embedChat(ctx context.Context, message string) ([]models.F
 	}
 	return result.Embeddings, nil
 }
+
+// func (w *chatService) processAndReply(ctx context.Context, msg redis.XMessage) error {
+// 	conversationID := msg.Values["conversation_id"].(string)
+// 	businessID := msg.Values["business_id"].(string)
+
+// 	lockKey := fmt.Sprintf("processing:%s", conversationID)
+// 	locked, _ := w.rdb.SetNX(ctx, lockKey, "1", 30*time.Second).Result()
+// 	if !locked {
+// 		return nil
+// 	}
+// 	defer w.rdb.Del(ctx, lockKey)
+
+// 	time.Sleep(12 * time.Second)
+
+// 	unreplied, err := w.messageRepo.GetPendingOutbound(ctx)
+// 	if err != nil || len(unreplied) == 0 {
+// 		return err
+// 	}
+
+// 	var parts []string
+// 	for _, m := range unreplied {
+// 		if m.Content != nil {
+// 			parts = append(parts, *m.Content)
+// 		}
+// 	}
+// 	combined := strings.Join(parts, "\n")
+
+// 	// // generate reply — always do this regardless of rate limit
+// 	// reply, err := w.pyml.Chat(ctx, businessID, combined)
+// 	// if err != nil {
+// 	// 	return err
+// 	// }
+
+// 	// write outbound message as pending
+// 	pending := models.MessageStatusPending
+// 	outbound, err := w.messageRepo.Create(ctx, nil, models.CreateMessage{
+// 		ConversationID: conversationID,
+// 		BusinessID:     businessID,
+// 		Direction:      models.MessageDirectionOut,
+// 		SentBy:         ptr(models.MessageSenderAI),
+// 		Content:        &reply,
+// 		Status:         &pending,
+// 	})
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	// NOW check rate limit before sending
+// 	w.trySend(ctx, outbound, businessID)
+// 	return nil
+// }
+
+// func (w *AIWorker) trySend(ctx context.Context, msg *models.Message, businessID string) {
+// 	rateLimitKey := fmt.Sprintf("rate:dm:%s", businessID)
+
+// 	count, _ := w.rdb.Incr(ctx, rateLimitKey).Result()
+// 	if count == 1 {
+// 		w.rdb.Expire(ctx, rateLimitKey, time.Hour)
+// 	}
+
+// 	if count > 200 {
+// 		// over limit — decrement back, message stays pending
+// 		w.rdb.Decr(ctx, rateLimitKey)
+// 		w.log.Warn("rate limited, reply queued", "message_id", msg.ID)
+// 		return
+// 	}
+
+// 	// under limit — send via Graph API
+// 	platformMsgID, err := w.sendViaGraphAPI(ctx, msg)
+// 	if err != nil {
+// 		w.messageRepo.UpdateStatus(ctx, msg.ID, models.MessageStatusFailed, "", ptr(err.Error()))
+// 		w.rdb.Decr(ctx, rateLimitKey)
+// 		return
+// 	}
+
+// 	w.messageRepo.UpdateStatus(ctx, msg.ID, models.MessageStatusSent, platformMsgID, nil)
+// }

@@ -6,6 +6,7 @@ import {
   IconBolt,
   IconBrandFacebook,
   IconBrandInstagram,
+  IconBrandMessenger,
   IconBrandTiktok,
   IconBrandWhatsapp,
   IconBuilding,
@@ -184,6 +185,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
 
   const platforms = [
     { name: "Instagram", url: `/${id}/connections/instagram`, icon: IconBrandInstagram },
+    { name: "Messenger", url: `/${id}/connections/messenger`, icon: IconBrandMessenger },
     { name: "TikTok", url: "#", icon: IconBrandTiktok },
     {
       name: "Facebook",

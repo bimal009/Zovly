@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"database/sql"
@@ -30,6 +31,7 @@ type FacebookService interface {
 	SaveConnections(ctx context.Context, businessID string, pages []models.FbPage) error
 	GetConnectionStatus(ctx context.Context, businessID string) (*FacebookConnectionStatus, error)
 	TogglePage(ctx context.Context, businessID, pageID string) (bool, error)
+	SubscribeMessengerPage(ctx context.Context, businessID, pageID string) error
 }
 
 type facebookService struct {
@@ -190,6 +192,73 @@ type PageDetails struct {
 	} `json:"picture"`
 	Link     string `json:"link"`
 	Category string `json:"category"`
+}
+
+func (s *facebookService) SubscribeMessengerPage(ctx context.Context, businessID, pageID string) error {
+	creds, err := s.appCredentialRepo.ListByApp(ctx, businessID, "facebook")
+	if err != nil {
+		return fmt.Errorf("list facebook credentials: %w", err)
+	}
+
+	key, err := base64.StdEncoding.DecodeString(s.cfg.App.EncryptionKey)
+	if err != nil || len(key) != 32 {
+		return fmt.Errorf("invalid encryption key configuration")
+	}
+
+	var pageToken string
+	var found bool
+	for _, cred := range creds {
+		if cred.PlatformAccountID != nil && *cred.PlatformAccountID == pageID {
+			if cred.AccessToken == nil {
+				return fmt.Errorf("page %s has no access token", pageID)
+			}
+			token, err := utils.Decrypt(*cred.AccessToken, key)
+			if err != nil {
+				return fmt.Errorf("decrypt page token: %w", err)
+			}
+			pageToken = token
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("page %s not found for business %s", pageID, businessID)
+	}
+
+	if err := s.subscribePageWebhooks(ctx, pageID, pageToken); err != nil {
+		return fmt.Errorf("subscribe page webhooks: %w", err)
+	}
+
+	if err := s.appCredentialRepo.UpdateWebhookSubscribed(ctx, businessID, pageID); err != nil {
+		return fmt.Errorf("mark webhook subscribed: %w", err)
+	}
+	return nil
+}
+
+func (s *facebookService) subscribePageWebhooks(ctx context.Context, pageID, pageToken string) error {
+	params := url.Values{
+		"subscribed_fields": {"messages,messaging_postbacks,message_deliveries,message_reads"},
+		"access_token":      {pageToken},
+	}
+	reqURL := fmt.Sprintf("https://graph.facebook.com/v25.0/%s/subscribed_apps", pageID)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, strings.NewReader(params.Encode()))
+	if err != nil {
+		return fmt.Errorf("build subscribe request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("call subscribe endpoint: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("subscribe failed (%d): %s", resp.StatusCode, body)
+	}
+	return nil
 }
 
 func (s *facebookService) fetchPageDetails(ctx context.Context, pageID, pageToken string) (*PageDetails, error) {

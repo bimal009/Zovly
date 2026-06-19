@@ -26,9 +26,10 @@ type DB struct {
 }
 
 type Meta struct {
-	AppID       string `env:"META_APP_ID,required"`
-	RedirectURI string `env:"META_REDIRECT_URI,required"`
-	AppSecret   string `env:"META_APP_SECRET,required"`
+	AppID              string `env:"META_APP_ID,required"`
+	RedirectURI        string `env:"META_REDIRECT_URI,required"`
+	AppSecret          string `env:"META_APP_SECRET,required"`
+	WebhookVerifyToken string `env:"META_WEBHOOK_VERIFY_TOKEN,required"`
 }
 
 type Instagram struct {

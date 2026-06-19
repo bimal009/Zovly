@@ -2,6 +2,9 @@ package handler
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -22,15 +25,17 @@ import (
 
 type FacebookHandler struct {
 	facebookService service.FacebookService
+	chatServive     service.ChatService
 	rdb             *redis.Client
 	cfg             *config.Config
 	httpClient      *http.Client
 	log             *slog.Logger
 }
 
-func NewFacebookHandler(facebookService service.FacebookService, rdb *redis.Client, cfg *config.Config, log *slog.Logger) *FacebookHandler {
+func NewFacebookHandler(facebookService service.FacebookService, chatService service.ChatService, rdb *redis.Client, cfg *config.Config, log *slog.Logger) *FacebookHandler {
 	return &FacebookHandler{
 		facebookService: facebookService,
+		chatServive:     chatService,
 		rdb:             rdb,
 		cfg:             cfg,
 		httpClient:      &http.Client{Timeout: 10 * time.Second},
@@ -269,32 +274,6 @@ func (h *FacebookHandler) fetchPages(ctx context.Context, userToken string) ([]m
 	return result.Data, nil
 }
 
-func (h *FacebookHandler) SubscribePageWebhooks(ctx context.Context, pageID, pageToken string) error {
-	params := url.Values{
-		"subscribed_fields": {"messages,messaging_postbacks,message_deliveries,message_reads"},
-		"access_token":      {pageToken},
-	}
-	reqURL := fmt.Sprintf("https://graph.facebook.com/v25.0/%s/subscribed_apps", pageID)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, strings.NewReader(params.Encode()))
-	if err != nil {
-		return fmt.Errorf("build subscribe request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	resp, err := h.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("call subscribe endpoint: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("subscribe failed (%d): %s", resp.StatusCode, body)
-	}
-	return nil
-}
-
 func (h *FacebookHandler) TogglePage(c *gin.Context) {
 	businessID, ok := businessIDFromCtx(c)
 	if !ok {
@@ -317,4 +296,105 @@ func (h *FacebookHandler) TogglePage(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, responses.Success("Facebook status updated successfully", gin.H{"is_active": isActive}))
+}
+func (h *FacebookHandler) SubscribeMessengerWebhook(c *gin.Context) {
+	businessID, ok := businessIDFromCtx(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, responses.Unauthorized("unauthorized"))
+		return
+	}
+
+	pageID := c.Param("pageId")
+	if pageID == "" {
+		c.JSON(http.StatusBadRequest, responses.BadRequest("missing page id"))
+		return
+	}
+
+	if err := h.facebookService.SubscribeMessengerPage(c.Request.Context(), businessID, pageID); err != nil {
+		h.log.Error("failed to subscribe messenger webhook", "business_id", businessID, "page_id", pageID, "error", err)
+		c.JSON(http.StatusInternalServerError, responses.InternalServerError("failed to subscribe page"))
+		return
+	}
+
+	h.log.Info("messenger page subscribed", "business_id", businessID, "page_id", pageID)
+	c.JSON(http.StatusOK, responses.Success[any]("page subscribed to messenger", nil))
+}
+
+func (h *FacebookHandler) MetaWebhook(c *gin.Context) {
+	// GET = verification challenge
+	if c.Request.Method == http.MethodGet {
+		challenge := c.Query("hub.challenge")
+		token := c.Query("hub.verify_token")
+		if token == h.cfg.Meta.WebhookVerifyToken {
+			h.log.Info("facebook webhook verified")
+			c.String(http.StatusOK, challenge)
+			return
+		}
+		h.log.Warn("facebook webhook verification failed")
+		c.Status(http.StatusForbidden)
+		return
+	}
+
+	// POST = event
+	body, _ := io.ReadAll(c.Request.Body)
+
+	sig := c.GetHeader("X-Hub-Signature-256")
+	if !verifySignature(body, sig, h.cfg.Meta.AppSecret) {
+		h.log.Warn("facebook webhook signature mismatch")
+		c.Status(http.StatusUnauthorized)
+		return
+	}
+
+	var payload models.MetaWebhookPayload
+	if err := json.Unmarshal(body, &payload); err != nil {
+		h.log.Error("failed to parse webhook payload", "error", err)
+		c.Status(http.StatusBadRequest)
+		return
+	}
+	switch payload.Object {
+	case "page":
+		for _, entry := range payload.Entry {
+			for _, event := range entry.Messaging {
+				if event.Message != nil && !event.Message.IsEcho {
+					h.chatServive.HandleInboundMessage(c.Request.Context(), "facebook", entry.ID, event)
+				}
+			}
+		}
+	case "instagram":
+		for _, entry := range payload.Entry {
+			for _, event := range entry.Messaging {
+				if event.Message != nil && !event.Message.IsEcho {
+					h.chatServive.HandleInboundMessage(c.Request.Context(), "instagram", entry.ID, event)
+				}
+			}
+		}
+	}
+
+	c.Status(http.StatusOK)
+
+	c.Status(http.StatusOK)
+}
+
+// verifySignature checks the X-Hub-Signature-256 header Facebook sends on every POST.
+func verifySignature(body []byte, header, appSecret string) bool {
+	const prefix = "sha256="
+	if !strings.HasPrefix(header, prefix) {
+		return false
+	}
+	got, err := hex.DecodeString(strings.TrimPrefix(header, prefix))
+	if err != nil {
+		return false
+	}
+	mac := hmac.New(sha256.New, []byte(appSecret))
+	mac.Write(body)
+	return hmac.Equal(mac.Sum(nil), got)
+}
+
+func (h *FacebookHandler) handleComment(ctx context.Context, pageID string, change models.ChangeEvent) {
+	h.log.Info("page comment received",
+		"page_id", pageID,
+		"comment_id", change.Value.CommentID,
+		"post_id", change.Value.PostID,
+	)
+	// TODO: enqueue to comment worker
 }

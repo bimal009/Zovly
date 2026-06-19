@@ -36,3 +36,10 @@ export const getInstagramConnectURL = async (): Promise<string> => {
   );
   return res.data.data.url;
 };
+
+export const subscribeMessengerPage = async (pageId: string) => {
+  const res = await axiosInstance.post<ApiResponse<null>>(
+    `/api/v1/connections/messenger/pages/${pageId}/subscribe`,
+  );
+  return res.data;
+};

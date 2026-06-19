@@ -14,6 +14,7 @@ type MessageRepo interface {
 	UpdateVectorized(ctx context.Context, messageID string, vectorized bool) error
 	UpdateStatus(ctx context.Context, messageID string, status models.MessageStatus, platformMsgID string, errMsg *string) error
 	GetByConversation(ctx context.Context, conversationID string, after *time.Time, limit int) ([]models.Message, error)
+	GetPendingOutbound(ctx context.Context) ([]models.Message, error)
 }
 
 type messageRepo struct {
@@ -97,5 +98,16 @@ func (r *messageRepo) GetByConversation(ctx context.Context, conversationID stri
 		ORDER BY sent_at ASC
 		LIMIT $2
 	`, conversationID, limit)
+	return messages, err
+}
+func (r *messageRepo) GetPendingOutbound(ctx context.Context) ([]models.Message, error) {
+	var messages []models.Message
+	err := r.db.SelectContext(ctx, &messages, `
+        SELECT * FROM messages
+        WHERE direction = 'out'
+          AND status = 'pending'
+        ORDER BY sent_at ASC
+        LIMIT 50
+    `)
 	return messages, err
 }

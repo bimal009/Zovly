@@ -59,6 +59,9 @@ func main() {
 	knowledgeRepo := repository.NewBusinessKnowledgeRepo(db)
 	appRepo := repository.NewAppRepo(db)
 	appCredentialRepo := repository.NewAppCredentialRepo(db)
+	messageRepo := repository.NewMessageRepo(db)
+	messageEmbedRepo := repository.NewMessageEmbeddingRepo(db)
+	conversationRepo := repository.NewconversationRepo(db)
 
 	planService := service.NewPlanService(db, rdb, slog, planRepo)
 	businessService := service.NewBusinessService(db, businessRepo, businessMemberRepo, userRepo, slog, appRepo)
@@ -67,6 +70,7 @@ func main() {
 	faqService := service.NewFaqService(faqRepo, knowledgeRepo, slog, db, *cfg)
 	facebookService := service.NewFacebookService(db, appCredentialRepo, appRepo, cfg, slog)
 	instagramService := service.NewInstagramService(db, appCredentialRepo, appRepo, cfg, slog)
+	chatService := service.NewChatService(db, messageRepo, appCredentialRepo, messageEmbedRepo, conversationRepo, *cfg, rdb)
 
 	planHandler := handler.NewPlanHandler(planService)
 	paddleHandler := handler.NewPaddleHandler(*cfg, subRepo, planRepo, payRepo)
@@ -75,7 +79,7 @@ func main() {
 	productHandler := handler.NewProductHandler(productService)
 	serviceHandler := handler.NewServiceHandler(serviceService)
 	faqHandler := handler.NewFaqHandler(faqService)
-	facebookHandler := handler.NewFacebookHandler(facebookService, rdb, cfg, slog)
+	facebookHandler := handler.NewFacebookHandler(facebookService, chatService, rdb, cfg, slog)
 	instagramHandler := handler.NewInstagramHandler(rdb, cfg, slog, instagramService)
 
 	authMiddleware := middlewares.RequireAuth(sessionRepo)
