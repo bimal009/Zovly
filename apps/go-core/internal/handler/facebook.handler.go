@@ -2,16 +2,12 @@ package handler
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
-	"strings"
 	"time"
 
 	"github.com/bimal009/Zovly/internal/config"
@@ -318,76 +314,6 @@ func (h *FacebookHandler) SubscribeMessengerWebhook(c *gin.Context) {
 
 	h.log.Info("messenger page subscribed", "business_id", businessID, "page_id", pageID)
 	c.JSON(http.StatusOK, responses.Success[any]("page subscribed to messenger", nil))
-}
-
-func (h *FacebookHandler) MetaWebhook(c *gin.Context) {
-	// GET = verification challenge
-	if c.Request.Method == http.MethodGet {
-		challenge := c.Query("hub.challenge")
-		token := c.Query("hub.verify_token")
-		if token == h.cfg.Meta.WebhookVerifyToken {
-			h.log.Info("facebook webhook verified")
-			c.String(http.StatusOK, challenge)
-			return
-		}
-		h.log.Warn("facebook webhook verification failed")
-		c.Status(http.StatusForbidden)
-		return
-	}
-
-	// POST = event
-	body, _ := io.ReadAll(c.Request.Body)
-
-	sig := c.GetHeader("X-Hub-Signature-256")
-	if !verifySignature(body, sig, h.cfg.Meta.AppSecret) {
-		h.log.Warn("facebook webhook signature mismatch")
-		c.Status(http.StatusUnauthorized)
-		return
-	}
-
-	var payload models.MetaWebhookPayload
-	if err := json.Unmarshal(body, &payload); err != nil {
-		h.log.Error("failed to parse webhook payload", "error", err)
-		c.Status(http.StatusBadRequest)
-		return
-	}
-	switch payload.Object {
-	case "page":
-		for _, entry := range payload.Entry {
-			for _, event := range entry.Messaging {
-				if event.Message != nil && !event.Message.IsEcho {
-					h.chatServive.HandleInboundMessage(c.Request.Context(), "facebook", entry.ID, event)
-				}
-			}
-		}
-	case "instagram":
-		for _, entry := range payload.Entry {
-			for _, event := range entry.Messaging {
-				if event.Message != nil && !event.Message.IsEcho {
-					h.chatServive.HandleInboundMessage(c.Request.Context(), "instagram", entry.ID, event)
-				}
-			}
-		}
-	}
-
-	c.Status(http.StatusOK)
-
-	c.Status(http.StatusOK)
-}
-
-// verifySignature checks the X-Hub-Signature-256 header Facebook sends on every POST.
-func verifySignature(body []byte, header, appSecret string) bool {
-	const prefix = "sha256="
-	if !strings.HasPrefix(header, prefix) {
-		return false
-	}
-	got, err := hex.DecodeString(strings.TrimPrefix(header, prefix))
-	if err != nil {
-		return false
-	}
-	mac := hmac.New(sha256.New, []byte(appSecret))
-	mac.Write(body)
-	return hmac.Equal(mac.Sum(nil), got)
 }
 
 func (h *FacebookHandler) handleComment(ctx context.Context, pageID string, change models.ChangeEvent) {

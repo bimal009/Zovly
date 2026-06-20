@@ -3,13 +3,17 @@ package models
 import "time"
 
 type Conversation struct {
-	ID            string     `db:"id" json:"id"`
-	BusinessID    string     `db:"business_id" json:"business_id"`
-	Platform      string     `db:"platform" json:"platform"`
-	ThreadID      string     `db:"thread_id" json:"thread_id"`
-	ContactID     string     `db:"contact_id" json:"contact_id"`
+	ID         string `db:"id" json:"id"`
+	BusinessID string `db:"business_id" json:"business_id"`
+	Platform   string `db:"platform" json:"platform"`
+	ThreadID   string `db:"thread_id" json:"thread_id"`
+	ContactID  string `db:"contact_id" json:"contact_id"`
+
+	ContactName      *string `db:"contact_name" json:"contact_name"`
+	ContactUsername  *string `db:"contact_username" json:"contact_username"`
+	ContactAvatarURL *string `db:"contact_avatar_url" json:"contact_avatar_url"`
+
 	LastMessageAt *time.Time `db:"last_message_at" json:"last_message_at"`
-	AIEnabled     bool       `db:"ai_enabled" json:"ai_enabled"`
 	CreatedAt     time.Time  `db:"created_at" json:"created_at"`
 }
 
@@ -18,4 +22,8 @@ type CreateConversation struct {
 	Platform   string `db:"platform"`
 	ThreadID   string `db:"thread_id"`
 	ContactID  string `db:"contact_id"`
+
+	ContactName      *string `db:"contact_name"`
+	ContactUsername  *string `db:"contact_username"`
+	ContactAvatarURL *string `db:"contact_avatar_url"`
 }

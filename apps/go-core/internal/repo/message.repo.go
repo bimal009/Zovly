@@ -15,6 +15,7 @@ type MessageRepo interface {
 	UpdateStatus(ctx context.Context, messageID string, status models.MessageStatus, platformMsgID string, errMsg *string) error
 	GetByConversation(ctx context.Context, conversationID string, after *time.Time, limit int) ([]models.Message, error)
 	GetPendingOutbound(ctx context.Context) ([]models.Message, error)
+	GetUnrepliedInbound(ctx context.Context, conversationID string) ([]models.Message, error)
 }
 
 type messageRepo struct {
@@ -100,6 +101,22 @@ func (r *messageRepo) GetByConversation(ctx context.Context, conversationID stri
 	`, conversationID, limit)
 	return messages, err
 }
+func (r *messageRepo) GetUnrepliedInbound(ctx context.Context, conversationID string) ([]models.Message, error) {
+	var messages []models.Message
+	err := r.db.SelectContext(ctx, &messages, `
+		SELECT * FROM messages
+		WHERE conversation_id = $1
+		  AND direction = 'in'
+		  AND sent_at > COALESCE(
+		      (SELECT MAX(sent_at) FROM messages
+		       WHERE conversation_id = $1 AND direction = 'out'),
+		      '1970-01-01'
+		  )
+		ORDER BY sent_at ASC
+	`, conversationID)
+	return messages, err
+}
+
 func (r *messageRepo) GetPendingOutbound(ctx context.Context) ([]models.Message, error) {
 	var messages []models.Message
 	err := r.db.SelectContext(ctx, &messages, `

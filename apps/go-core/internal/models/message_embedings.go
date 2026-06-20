@@ -29,3 +29,19 @@ type MessageEmbeddingResponse struct {
 	content     string
 	embedding   pgvector.Vector
 }
+
+type ChatEmbedResponse struct {
+	Embeddings []FaqChunksResponse `json:"embeddings"`
+}
+
+type PastChatChunk struct {
+	Content        string  `db:"content" json:"content"`
+	ConversationID string  `db:"conversation_id" json:"conversation_id"`
+	Score          float64 `db:"score" json:"score"`
+}
+
+type KnowledgeChunk struct {
+	Content    string  `db:"content" json:"content"`
+	SourceType string  `db:"source_type" json:"source_type"`
+	Score      float64 `db:"score" json:"score"`
+}

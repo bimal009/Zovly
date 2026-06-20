@@ -16,6 +16,8 @@ func RegisterAll(
 	faqHandler *handler.FaqHandler,
 	facebookHandler *handler.FacebookHandler,
 	instagramHandler *handler.InstagramHandler,
+	chatHandler *handler.ChatHandler,
+	inboxHandler *handler.InboxHandler,
 	authMiddleware gin.HandlerFunc,
 	businessMiddleware gin.HandlerFunc,
 
@@ -23,8 +25,8 @@ func RegisterAll(
 	// Public webhook endpoints — no auth middleware (called by Meta servers)
 	webhook := api.Group("/webhook/meta")
 	{
-		webhook.GET("/facebook", facebookHandler.MetaWebhook)
-		webhook.POST("/facebook", facebookHandler.MetaWebhook)
+		webhook.GET("/facebook", chatHandler.HandleChallenge)
+		webhook.POST("/facebook", chatHandler.MetaWebhook)
 	}
 
 	plans := api.Group("/plans")
@@ -76,6 +78,13 @@ func RegisterAll(
 	{
 		faqs.POST("/create", faqHandler.Create)
 		faqs.GET("/all", faqHandler.GetAll)
+	}
+
+	inbox := api.Group("/inbox")
+	inbox.Use(authMiddleware, businessMiddleware)
+	{
+		inbox.GET("/conversations", inboxHandler.ListConversations)
+		inbox.GET("/conversations/:id/messages", inboxHandler.GetMessages)
 	}
 
 	connections := api.Group("/connections")

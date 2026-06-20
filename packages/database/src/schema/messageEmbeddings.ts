@@ -26,7 +26,6 @@ export const messageEmbeddings = pgTable(
       .notNull()
       .references(() => conversations.id, { onDelete: "cascade" }),
 
-    // text that was embedded (message content or voice transcript)
     content: text("content").notNull(),
 
     embedding: vector("embedding", { dimensions: 1024 }).notNull(),

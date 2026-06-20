@@ -10,6 +10,8 @@ import (
 
 type ConversationRepo interface {
 	FindOrCreate(ctx context.Context, tx *sqlx.Tx, conv models.CreateConversation) (*models.Conversation, error)
+	GetByID(ctx context.Context, id, businessID string) (*models.Conversation, error)
+	ListByBusiness(ctx context.Context, businessID string, limit, offset int) ([]models.Conversation, int, error)
 }
 type conversationRepo struct {
 	db *sqlx.DB
@@ -38,9 +40,9 @@ func (r *conversationRepo) FindOrCreate(ctx context.Context, tx *sqlx.Tx, conv m
 	// create new conversation
 	query := `
         INSERT INTO conversations
-            (business_id, platform, thread_id, contact_id, last_message_at, ai_enabled)
+            (business_id, platform, thread_id, contact_id, contact_name, contact_username, contact_avatar_url, last_message_at)
         VALUES
-            (:business_id, :platform, :thread_id, :contact_id, now(), true)
+            (:business_id, :platform, :thread_id, :contact_id, :contact_name, :contact_username, :contact_avatar_url, now())
         RETURNING *
     `
 	rows, err := sqlx.NamedQueryContext(ctx, tx, query, conv)
@@ -54,4 +56,36 @@ func (r *conversationRepo) FindOrCreate(ctx context.Context, tx *sqlx.Tx, conv m
 		rows.StructScan(&created)
 	}
 	return &created, rows.Err()
+}
+
+func (r *conversationRepo) GetByID(ctx context.Context, id, businessID string) (*models.Conversation, error) {
+	var conv models.Conversation
+	err := r.db.GetContext(ctx, &conv, `
+        SELECT * FROM conversations WHERE id = $1 AND business_id = $2
+    `, id, businessID)
+	if err != nil {
+		return nil, err
+	}
+	return &conv, nil
+}
+
+func (r *conversationRepo) ListByBusiness(ctx context.Context, businessID string, limit, offset int) ([]models.Conversation, int, error) {
+	var total int
+	if err := r.db.GetContext(ctx, &total, `
+        SELECT COUNT(*) FROM conversations WHERE business_id = $1
+    `, businessID); err != nil {
+		return nil, 0, fmt.Errorf("count conversations: %w", err)
+	}
+
+	var convs []models.Conversation
+	err := r.db.SelectContext(ctx, &convs, `
+        SELECT * FROM conversations
+        WHERE business_id = $1
+        ORDER BY last_message_at DESC NULLS LAST
+        LIMIT $2 OFFSET $3
+    `, businessID, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list conversations: %w", err)
+	}
+	return convs, total, nil
 }
