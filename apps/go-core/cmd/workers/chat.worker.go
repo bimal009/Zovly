@@ -108,7 +108,7 @@ func (w *AIWorker) processAndReply(ctx context.Context, msg redis.XMessage) erro
 	conversationID, _ := msg.Values["conversation_id"].(string)
 	businessID, _ := msg.Values["business_id"].(string)
 	messageID, _ := msg.Values["message_id"].(string)
-
+	attachments, _ := msg.Values["attachments"].(bool)
 	if conversationID == "" || businessID == "" {
 		return fmt.Errorf("malformed stream entry: missing ids")
 	}
@@ -126,7 +126,12 @@ func (w *AIWorker) processAndReply(ctx context.Context, msg redis.XMessage) erro
 	}
 	defer w.rdb.Del(ctx, lockKey)
 
-	time.Sleep(12 * time.Second)
+	timeToSleep := 15
+	if attachments {
+		timeToSleep = 30
+	}
+
+	time.Sleep(time.Duration(timeToSleep) * time.Second)
 
 	unreplied, err := w.messageRepo.GetUnrepliedInbound(ctx, conversationID)
 	if err != nil {
@@ -364,22 +369,22 @@ func (w *AIWorker) getCustomerProfile(ctx context.Context, conversationID string
 }
 
 func (w *AIWorker) getConversationHistory(ctx context.Context, conversationID string, n int) ([]models.Message, error) {
-	// newest-first from DB, then reverse to chronological for the LLM
+	// inner query selects the latest N (DESC LIMIT), outer sorts them
+	// chronologically (ASC) for the LLM — no Go-side reversal needed
 	query := `
-		SELECT * FROM messages
-		WHERE conversation_id = $1 AND content IS NOT NULL
-		ORDER BY sent_at DESC
-		LIMIT $2`
+		SELECT * FROM (
+			SELECT * FROM messages
+			WHERE conversation_id = $1 AND content IS NOT NULL
+			ORDER BY sent_at DESC
+			LIMIT $2
+		) sub
+		ORDER BY sent_at ASC`
 
 	var results []models.Message
 	if err := w.db.SelectContext(ctx, &results, query, conversationID, n); err != nil {
 		return nil, err
 	}
 
-	// reverse to chronological (oldest first)
-	for i, j := 0, len(results)-1; i < j; i, j = i+1, j-1 {
-		results[i], results[j] = results[j], results[i]
-	}
 	return results, nil
 }
 func (w *AIWorker) trySend(
@@ -437,7 +442,6 @@ func (w *AIWorker) trySend(
 	}
 	w.log.Info("outbound message saved", "message_id", outbound.ID, "conversation_id", conversationID)
 
-	// from here on: outbound row exists, so mark failed rather than retrying
 	w.log.Info("fetching credentials", "business_id", businessID, "platform", platform)
 	creds, err := w.credentialRepo.ListByApp(ctx, businessID, platform)
 	if err != nil || len(creds) == 0 {

@@ -6,6 +6,8 @@ type ChatContext struct {
 	Business         *Business        `json:"business"`
 	PastConversation []Message        `json:"past_conversation"`
 	Customer         *Conversation    `json:"customer"`
+	ImageMessage     string           `json:"image_message"`
+	AudioMessage     string           `json:"audio_message"`
 }
 
 type ChatReplyPayload struct {

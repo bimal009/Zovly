@@ -316,7 +316,7 @@ func (h *FacebookHandler) SubscribeMessengerWebhook(c *gin.Context) {
 	c.JSON(http.StatusOK, responses.Success[any]("page subscribed to messenger", nil))
 }
 
-func (h *FacebookHandler) handleComment(ctx context.Context, pageID string, change models.ChangeEvent) {
+func (h *FacebookHandler) handleComment(ctx context.Context, pageID string, change models.FacebookChangeEvent) {
 	h.log.Info("page comment received",
 		"page_id", pageID,
 		"comment_id", change.Value.CommentID,

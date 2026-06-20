@@ -1,86 +1,115 @@
-package models
+﻿package models
 
-// top-level payload from Meta
-type MetaWebhookPayload struct {
-	Object string         `json:"object"` // "page" or "instagram"
-	Entry  []WebhookEntry `json:"entry"`
+// ─── Facebook (Messenger) webhook ────────────────────────────────────────────
+// object: "page"
+
+type FacebookWebhookPayload struct {
+	Object string          `json:"object" db:"object"`
+	Entry  []FacebookEntry `json:"entry"  db:"entry"`
 }
 
-type WebhookEntry struct {
-	ID        string           `json:"id"` // Page ID or IG user ID
-	Time      int64            `json:"time"`
-	Messaging []MessagingEvent `json:"messaging"`
-	Changes   []ChangeEvent    `json:"changes,omitempty"` // comments, feed updates
+type FacebookEntry struct {
+	ID        string                   `json:"id"                  db:"id"`
+	Time      int64                    `json:"time"                db:"time"`
+	Messaging []FacebookMessagingEvent `json:"messaging,omitempty" db:"messaging"`
+	Changes   []FacebookChangeEvent    `json:"changes,omitempty"   db:"changes"`
 }
 
-type MessagingEvent struct {
-	Sender    WebhookUser     `json:"sender"`
-	Recipient WebhookUser     `json:"recipient"`
-	Timestamp int64           `json:"timestamp"`
-	Message   *InboundMessage `json:"message,omitempty"`
-	Postback  *Postback       `json:"postback,omitempty"`
-	Delivery  *Delivery       `json:"delivery,omitempty"`
-	Read      *Read           `json:"read,omitempty"`
+type FacebookMessagingEvent struct {
+	Sender    FacebookUser      `json:"sender"             db:"sender"`
+	Recipient FacebookUser      `json:"recipient"          db:"recipient"`
+	Timestamp int64             `json:"timestamp"          db:"timestamp"`
+	Message   *FacebookMessage  `json:"message,omitempty"  db:"message"`
+	Postback  *FacebookPostback `json:"postback,omitempty" db:"postback"`
+	Delivery  *FacebookDelivery `json:"delivery,omitempty" db:"delivery"`
+	Read      *FacebookRead     `json:"read,omitempty"     db:"read"`
 }
 
-type WebhookUser struct {
-	ID string `json:"id"`
+type FacebookUser struct {
+	ID string `json:"id" db:"id"`
 }
 
-type InboundMessage struct {
-	Mid         string       `json:"mid"`
-	Text        string       `json:"text,omitempty"`
-	Attachments []Attachment `json:"attachments,omitempty"`
-	ReplyTo     *ReplyTo     `json:"reply_to,omitempty"`
-	IsEcho      bool         `json:"is_echo,omitempty"` // true = sent BY the page, not to it
+// ── attachment types ──────────────────────────────────────────────────────────
+
+type FacebookAttachmentType string
+
+const (
+	FacebookAttachmentTypeImage    FacebookAttachmentType = "image"
+	FacebookAttachmentTypeVideo    FacebookAttachmentType = "video"
+	FacebookAttachmentTypeAudio    FacebookAttachmentType = "audio"
+	FacebookAttachmentTypeFile     FacebookAttachmentType = "file"
+	FacebookAttachmentTypeTemplate FacebookAttachmentType = "template"
+	FacebookAttachmentTypeFallback FacebookAttachmentType = "fallback"
+	FacebookAttachmentTypeURL      FacebookAttachmentType = "url"
+	FacebookAttachmentTypeLink     FacebookAttachmentType = "link"
+)
+
+type FacebookMessage struct {
+	Mid         string               `json:"mid"                   db:"mid"`
+	Text        string               `json:"text,omitempty"        db:"text"`
+	Attachments []FacebookAttachment `json:"attachments,omitempty" db:"attachments"`
+	ReplyTo     *FacebookReplyTo     `json:"reply_to,omitempty"    db:"reply_to"`
+	IsEcho      bool                 `json:"is_echo,omitempty"     db:"is_echo"`
 }
 
-type Attachment struct {
-	Type    string            `json:"type"` // image, video, audio, file, template
-	Payload AttachmentPayload `json:"payload"`
+type FacebookAttachment struct {
+	Type    FacebookAttachmentType    `json:"type"    db:"type"`
+	Payload FacebookAttachmentPayload `json:"payload" db:"payload"`
 }
 
-type AttachmentPayload struct {
-	URL string `json:"url,omitempty"`
+type FacebookAttachmentPayload struct {
+	URL string `json:"url,omitempty" db:"url"`
 }
 
-type ReplyTo struct {
-	Mid string `json:"mid"`
+type FacebookReplyTo struct {
+	Mid string `json:"mid" db:"mid"`
 }
 
-type Postback struct {
-	Mid     string `json:"mid"`
-	Title   string `json:"title"`
-	Payload string `json:"payload"`
+type FacebookPostback struct {
+	Mid     string `json:"mid"     db:"mid"`
+	Title   string `json:"title"   db:"title"`
+	Payload string `json:"payload" db:"payload"`
 }
 
-type Delivery struct {
-	Mids      []string `json:"mids"`
-	Watermark int64    `json:"watermark"`
+type FacebookDelivery struct {
+	Mids      []string `json:"mids"      db:"mids"`
+	Watermark int64    `json:"watermark" db:"watermark"`
 }
 
-type Read struct {
-	Watermark int64 `json:"watermark"`
+type FacebookRead struct {
+	Watermark int64 `json:"watermark" db:"watermark"`
 }
 
-// ── changes (comments, feed) ─────────────────────────────────
+// ── change / feed events ──────────────────────────────────────────────────────
 
-type ChangeEvent struct {
-	Field string      `json:"field"` // "feed", "comments", "mentions"
-	Value ChangeValue `json:"value"`
+type FacebookChangeEvent struct {
+	Field string              `json:"field" db:"field"`
+	Value FacebookChangeValue `json:"value" db:"value"`
 }
 
-type ChangeValue struct {
-	From        *WebhookFrom `json:"from,omitempty"`
-	Item        string       `json:"item,omitempty"` // "comment", "post", "status"
-	Verb        string       `json:"verb,omitempty"` // "add", "edit", "remove"
-	CommentID   string       `json:"comment_id,omitempty"`
-	PostID      string       `json:"post_id,omitempty"`
-	Message     string       `json:"message,omitempty"` // comment text
-	CreatedTime int64        `json:"created_time,omitempty"`
+type FacebookChangeValue struct {
+	// feed / comment
+	From        *FacebookFrom `json:"from,omitempty"         db:"from"`
+	Item        string        `json:"item,omitempty"         db:"item"`
+	Verb        string        `json:"verb,omitempty"         db:"verb"`
+	CommentID   string        `json:"comment_id,omitempty"   db:"comment_id"`
+	PostID      string        `json:"post_id,omitempty"      db:"post_id"`
+	Message     string        `json:"message,omitempty"      db:"message"`
+	CreatedTime int64         `json:"created_time,omitempty" db:"created_time"`
+	// leadgen
+	LeadgenID string `json:"leadgen_id,omitempty" db:"leadgen_id"`
+	FormID    string `json:"form_id,omitempty"    db:"form_id"`
+	PageID    string `json:"page_id,omitempty"    db:"page_id"`
 }
 
-type WebhookFrom struct {
-	ID   string `json:"id"`
-	Name string `json:"name,omitempty"`
+type FacebookFrom struct {
+	ID   string `json:"id"             db:"id"`
+	Name string `json:"name,omitempty" db:"name"`
+}
+
+type MessengerProfile struct {
+	FirstName  string `json:"first_name"`
+	LastName   string `json:"last_name"`
+	ProfilePic string `json:"profile_pic"`
+	ID         string `json:"id"`
 }

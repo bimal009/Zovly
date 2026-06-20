@@ -12,6 +12,13 @@ class ChatRequest(BaseModel):
 class ChatEmbeddingRequest(BaseModel):
     message: str
 
+class ChatImageRequest(BaseModel):
+    url: str
+
+
+class ChatAudioRequest(BaseModel):
+    url: str
+
 
 class KnowledgeChunk(BaseModel):
     content: str

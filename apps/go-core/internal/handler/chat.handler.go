@@ -59,7 +59,6 @@ func (h *ChatHandler) HandleChallenge(c *gin.Context) {
 }
 
 func (h *ChatHandler) MetaWebhook(c *gin.Context) {
-
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		h.log.Error("failed to read webhook body", "error", err)
@@ -74,60 +73,95 @@ func (h *ChatHandler) MetaWebhook(c *gin.Context) {
 		return
 	}
 
-	var payload models.MetaWebhookPayload
-	if err := json.Unmarshal(body, &payload); err != nil {
-		h.log.Error("failed to parse webhook payload", "error", err)
+	// peek at object field to route to the right parser
+	var base struct {
+		Object string `json:"object"`
+	}
+	if err := json.Unmarshal(body, &base); err != nil {
+		h.log.Error("failed to parse webhook object", "error", err)
 		c.Status(http.StatusBadRequest)
 		return
 	}
 
-	switch payload.Object {
+	switch base.Object {
 	case "page":
+		var payload models.FacebookWebhookPayload
+		if err := json.Unmarshal(body, &payload); err != nil {
+			h.log.Error("failed to parse facebook payload", "error", err)
+			c.Status(http.StatusBadRequest)
+			return
+		}
 		for _, entry := range payload.Entry {
 			for _, event := range entry.Messaging {
-				if event.Message != nil && !event.Message.IsEcho {
-					if err := h.chatService.HandleInboundMessage(
-						c.Request.Context(),
-						"facebook",
-						entry.ID,
-						event,
-					); err != nil {
-						h.log.Error(
-							"handle facebook message failed",
-							"page_id",
-							entry.ID,
-							"error",
-							err,
-						)
-					}
+				if event.Message == nil || event.Message.IsEcho {
+					continue
+				}
+				pageID := event.Recipient.ID
+				if pageID == "" {
+					pageID = entry.ID
+				}
+				if err := h.chatService.HandleFacebookInboundMessage(
+					c.Request.Context(), models.PlatformFacebook, pageID, event,
+				); err != nil {
+					h.log.Error("handle facebook message failed",
+						"page_id", pageID, "error", err)
 				}
 			}
 		}
 
 	case "instagram":
+		var payload models.InstagramWebhookPayload
+		if err := json.Unmarshal(body, &payload); err != nil {
+			h.log.Error("failed to parse instagram payload", "error", err)
+			c.Status(http.StatusBadRequest)
+			return
+		}
 		for _, entry := range payload.Entry {
-			for _, event := range entry.Messaging {
-				if event.Message != nil && !event.Message.IsEcho {
-					if err := h.chatService.HandleInboundMessage(
-						c.Request.Context(),
-						"instagram",
-						entry.ID,
-						event,
-					); err != nil {
-						h.log.Error(
-							"handle instagram message failed",
-							"page_id",
-							entry.ID,
-							"error",
-							err,
-						)
-					}
+			for _, igEvent := range entry.Messaging {
+				if igEvent.Message == nil || igEvent.Message.IsEcho {
+					continue
+				}
+				accountID := igEvent.Recipient.ID
+				if accountID == "" {
+					accountID = entry.ID
+				}
+				if err := h.chatService.HandleFacebookInboundMessage(
+					c.Request.Context(), models.PlatformInstagram, accountID, igEventToFb(igEvent),
+				); err != nil {
+					h.log.Error("handle instagram message failed",
+						"account_id", accountID, "error", err)
 				}
 			}
 		}
 	}
 
 	c.Status(http.StatusOK)
+}
+
+// igEventToFb converts an Instagram messaging event to the Facebook equivalent
+// so that ChatService.HandleInboundMessage can work with a single event type.
+// Both platforms share the same Messenger API structure (sender/recipient/message).
+func igEventToFb(e models.InstagramMessagingEvent) models.FacebookMessagingEvent {
+	fb := models.FacebookMessagingEvent{
+		Sender:    models.FacebookUser{ID: e.Sender.ID},
+		Recipient: models.FacebookUser{ID: e.Recipient.ID},
+		Timestamp: e.Timestamp,
+	}
+	if e.Message != nil {
+		msg := &models.FacebookMessage{
+			Mid:    e.Message.Mid,
+			Text:   e.Message.Text,
+			IsEcho: e.Message.IsEcho,
+		}
+		for _, a := range e.Message.Attachments {
+			msg.Attachments = append(msg.Attachments, models.FacebookAttachment{
+				Type:    models.FacebookAttachmentType(a.Type),
+				Payload: models.FacebookAttachmentPayload{URL: a.Payload.URL},
+			})
+		}
+		fb.Message = msg
+	}
+	return fb
 }
 
 func verifySignature(body []byte, header, appSecret string) bool {

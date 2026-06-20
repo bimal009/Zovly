@@ -15,6 +15,7 @@ type App struct {
 	AllowOrigins  []string `env:"ALLOW_ORIGINS"   envDefault:"http://localhost:3000"`
 	AIServiceURL  string   `env:"AI_SERVICE_URL" envDefault:"http://localhost:8000"`
 	EncryptionKey string   `env:"ENCRYPTION_KEY"`
+	DeepgramKey   string   `env:"DEEPGRAM_API_KEY"`
 }
 
 type DB struct {

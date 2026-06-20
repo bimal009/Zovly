@@ -1,41 +1,35 @@
 package handler
 
 import (
-	"fmt"
 	"net/http"
 
-	"github.com/bimal009/Zovly/internal/config"
-	"github.com/bimal009/Zovly/internal/models"
+	"github.com/bimal009/Zovly/internal/service"
 	"github.com/bimal009/Zovly/pkg/responses"
 	"github.com/gin-gonic/gin"
-	imagekit "github.com/imagekit-developer/imagekit-go/v2"
-	"github.com/imagekit-developer/imagekit-go/v2/option"
 )
 
 type ImageHandler struct {
-	cfg *config.Config
+	imageKitService service.ImageKitService
 }
 
-func NewImageHandler(cfg *config.Config) *ImageHandler {
-	return &ImageHandler{cfg: cfg}
+func NewImageHandler(imageKitService service.ImageKitService) *ImageHandler {
+	return &ImageHandler{
+		imageKitService: imageKitService,
+	}
 }
 
-func (i *ImageHandler) CreateToken(c *gin.Context) {
-	client := imagekit.NewClient(
-		option.WithPrivateKey(i.cfg.ImageKit.PrivateKey),
-	)
-
-	params, err := client.Helper.GetAuthenticationParameters("", 0)
+func (h *ImageHandler) CreateToken(c *gin.Context) {
+	data, err := h.imageKitService.GetToken(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, responses.InternalServerError(fmt.Sprintf("failed to generate auth token: %s", err.Error())))
+		c.JSON(
+			http.StatusInternalServerError,
+			responses.InternalServerError("failed to generate auth token"),
+		)
 		return
 	}
 
-	data := models.ImageAuthTokenResponse{
-		Signature: params["signature"].(string),
-		Expire:    params["expire"].(int64),
-		Token:     params["token"].(string),
-	}
-
-	c.JSON(http.StatusOK, responses.Success("auth token generated", data))
+	c.JSON(
+		http.StatusOK,
+		responses.Success("auth token generated", data),
+	)
 }
