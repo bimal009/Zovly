@@ -16,6 +16,7 @@ type MessageRepo interface {
 	GetByConversation(ctx context.Context, conversationID string, after *time.Time, limit int) ([]models.Message, error)
 	GetPendingOutbound(ctx context.Context) ([]models.Message, error)
 	GetUnrepliedInbound(ctx context.Context, conversationID string) ([]models.Message, error)
+	UpdateContent(ctx context.Context, id, content string) error
 }
 
 type messageRepo struct {
@@ -127,4 +128,12 @@ func (r *messageRepo) GetPendingOutbound(ctx context.Context) ([]models.Message,
         LIMIT 50
     `)
 	return messages, err
+}
+
+func (r *messageRepo) UpdateContent(ctx context.Context, id, content string) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE messages SET content = $1 WHERE id = $2`, content, id)
+	if err != nil {
+		return fmt.Errorf("update content: %w", err)
+	}
+	return nil
 }

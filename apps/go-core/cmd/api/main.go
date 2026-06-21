@@ -68,9 +68,9 @@ func main() {
 	productService := service.NewProductService(db, rdb, slog, productRepo)
 	serviceService := service.NewServiceService(db, rdb, slog, serviceRepo)
 	faqService := service.NewFaqService(faqRepo, knowledgeRepo, slog, db, *cfg)
-	facebookService := service.NewFacebookService(db, appCredentialRepo, appRepo, cfg, slog)
-	instagramService := service.NewInstagramService(db, appCredentialRepo, appRepo, cfg, slog)
 	chatService := service.NewChatService(db, messageRepo, appCredentialRepo, messageEmbedRepo, conversationRepo, *cfg, rdb, slog)
+	facebookService := service.NewFacebookService(db, appCredentialRepo, appRepo, messageRepo, cfg, chatService, slog)
+	instagramService := service.NewInstagramService(db, appCredentialRepo, appRepo, cfg, slog)
 
 	planHandler := handler.NewPlanHandler(planService)
 	paddleHandler := handler.NewPaddleHandler(*cfg, subRepo, planRepo, payRepo)

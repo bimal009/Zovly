@@ -32,14 +32,17 @@ type FacebookService interface {
 	GetConnectionStatus(ctx context.Context, businessID string) (*FacebookConnectionStatus, error)
 	TogglePage(ctx context.Context, businessID, pageID string) (bool, error)
 	SubscribeMessengerPage(ctx context.Context, businessID, pageID string) error
+	HandleFacebookInboundMessage(ctx context.Context, platform models.Platform, pageID string, event models.FacebookMessagingEvent) error
 }
 
 type facebookService struct {
 	db                *sqlx.DB
 	appCredentialRepo repository.AppCredentialRepo
 	appRepo           repository.AppRepo
+	messageRepo       repository.MessageRepo
 	cfg               *config.Config
 	httpClient        *http.Client
+	chatService       ChatService
 	log               *slog.Logger
 }
 
@@ -47,15 +50,19 @@ func NewFacebookService(
 	db *sqlx.DB,
 	appCredentialRepo repository.AppCredentialRepo,
 	appRepo repository.AppRepo,
+	messageRepo repository.MessageRepo,
 	cfg *config.Config,
+	chatService ChatService,
 	log *slog.Logger,
 ) FacebookService {
 	return &facebookService{
 		db:                db,
 		appCredentialRepo: appCredentialRepo,
 		appRepo:           appRepo,
+		messageRepo:       messageRepo,
 		cfg:               cfg,
 		httpClient:        &http.Client{Timeout: 10 * time.Second},
+		chatService:       chatService,
 		log:               log,
 	}
 }
@@ -289,4 +296,108 @@ func (s *facebookService) fetchPageDetails(ctx context.Context, pageID, pageToke
 		return nil, fmt.Errorf("decode page details: %w", err)
 	}
 	return &details, nil
+}
+
+// ── inbound message handling ─────────────────────────────────────────
+
+func (s *facebookService) HandleFacebookInboundMessage(ctx context.Context, platform models.Platform, pageID string, event models.FacebookMessagingEvent) error {
+	s.log.Info("inbound message received", "platform", platform, "page_id", pageID, "sender", event.Sender.ID)
+
+	cred, err := s.appCredentialRepo.GetByPlatformAccountID(ctx, pageID)
+	if err != nil {
+		s.log.Error("credential lookup failed", "platform_id", pageID, "err", err)
+		return fmt.Errorf("get credential for page %s: %w", pageID, err)
+	}
+
+	encKey, err := base64.StdEncoding.DecodeString(s.cfg.App.EncryptionKey)
+	if err != nil {
+		s.log.Error("decode encryption key failed", "err", err)
+		return fmt.Errorf("decode encryption key: %w", err)
+	}
+	pageToken, err := utils.Decrypt(*cred.AccessToken, encKey)
+	if err != nil {
+		s.log.Error("token decrypt failed", "err", err)
+		return fmt.Errorf("decrypt access token: %w", err)
+	}
+
+	user, err := s.chatService.FetchUserProfile(ctx, event.Sender.ID, pageToken)
+	if err != nil {
+		s.log.Error("fetch user profile failed", "sender_id", event.Sender.ID, "err", err)
+		return fmt.Errorf("fetch user profile: %w", err)
+	}
+	s.log.Info("user profile fetched", "name", user.FirstName+" "+user.LastName)
+
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	fullName := user.FirstName + " " + user.LastName
+	conv, err := s.chatService.FindOrCreate(ctx, tx, models.CreateConversation{
+		BusinessID:       cred.BusinessID,
+		Platform:         string(platform),
+		ThreadID:         event.Sender.ID,
+		ContactID:        event.Sender.ID,
+		ContactName:      &fullName,
+		ContactAvatarURL: &user.ProfilePic,
+	})
+	if err != nil {
+		s.log.Error("find or create conversation failed", "err", err)
+		return fmt.Errorf("find or create conversation: %w", err)
+	}
+	s.log.Info("conversation ready", "conversation_id", conv.ID, "business_id", cred.BusinessID)
+
+	// 1) Text — Meta can send text and attachments in the SAME event,
+	//    so this runs independently of the attachment loop below.
+	if event.Message.Text != "" {
+		text := event.Message.Text
+		insertedMsg, err := s.messageRepo.Create(ctx, tx, models.CreateMessage{
+			ConversationID: conv.ID,
+			BusinessID:     cred.BusinessID,
+			Direction:      models.MessageDirectionIn,
+			SentBy:         nil,
+			Content:        &text,
+			Status:         nil,
+		})
+		if err != nil {
+			s.log.Error("create message failed", "err", err)
+			return fmt.Errorf("create message: %w", err)
+		}
+		if err := s.chatService.StreamMessage(ctx, platform, insertedMsg.ID, cred.BusinessID, conv.ID, false); err != nil {
+			s.log.Error("stream message failed", "err", err)
+			return fmt.Errorf("stream message: %w", err)
+		}
+	}
+
+	// 2) Attachments — size-gated, type-aware.
+	for _, attachment := range event.Message.Attachments {
+		switch attachment.Type {
+
+		case models.FacebookAttachmentTypeImage:
+			s.chatService.HandleImageAttachment(ctx, tx, platform, conv, &cred, pageID, attachment.Payload.URL)
+
+		case models.FacebookAttachmentTypeAudio:
+			s.chatService.HandleAudioAttachment(ctx, tx, platform, conv, &cred, pageID, attachment.Payload.URL)
+
+		case models.FacebookAttachmentTypeVideo:
+			s.chatService.HandleUnprocessableAttachment(ctx, tx, platform, conv, &cred, pageID,
+				attachment.Payload.URL, models.MediaTypeVideo, "video",
+				"[Customer sent a video that can't be processed automatically]")
+
+		case models.FacebookAttachmentTypeFile:
+			s.chatService.HandleUnprocessableAttachment(ctx, tx, platform, conv, &cred, pageID,
+				attachment.Payload.URL, models.MediaTypeDocument, "file",
+				"[Customer sent a file that can't be processed automatically]")
+
+		case models.FacebookAttachmentTypeFallback:
+			s.chatService.HandleSharedLink(ctx, tx, platform, conv, &cred, attachment)
+
+		default:
+			s.log.Warn("unknown attachment type", "type", attachment.Type)
+			continue
+		}
+	}
+
+	return tx.Commit()
 }

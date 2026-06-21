@@ -100,7 +100,7 @@ func (h *ChatHandler) MetaWebhook(c *gin.Context) {
 				if pageID == "" {
 					pageID = entry.ID
 				}
-				if err := h.chatService.HandleFacebookInboundMessage(
+				if err := h.facebookService.HandleFacebookInboundMessage(
 					c.Request.Context(), models.PlatformFacebook, pageID, event,
 				); err != nil {
 					h.log.Error("handle facebook message failed",
@@ -125,7 +125,7 @@ func (h *ChatHandler) MetaWebhook(c *gin.Context) {
 				if accountID == "" {
 					accountID = entry.ID
 				}
-				if err := h.chatService.HandleFacebookInboundMessage(
+				if err := h.facebookService.HandleFacebookInboundMessage(
 					c.Request.Context(), models.PlatformInstagram, accountID, igEventToFb(igEvent),
 				); err != nil {
 					h.log.Error("handle instagram message failed",

@@ -9,18 +9,6 @@ const (
 	MessageDirectionOut MessageDirection = "out"
 )
 
-type MessageType string
-
-const (
-	MessageTypeText     MessageType = "text"
-	MessageTypeImage    MessageType = "image"
-	MessageTypeVideo    MessageType = "video"
-	MessageTypeAudio    MessageType = "audio"
-	MessageTypeDocument MessageType = "document"
-	MessageTypeLink     MessageType = "link"
-	MessageTypeURL      MessageType = "url"
-)
-
 type MessageSender string
 
 const (
@@ -35,6 +23,7 @@ const (
 	MediaTypeVideo    MessageMediaType = "video"
 	MediaTypeAudio    MessageMediaType = "audio"
 	MediaTypeDocument MessageMediaType = "document"
+	MediaTypeLink     MessageMediaType = "link"
 )
 
 type MessageStatus string

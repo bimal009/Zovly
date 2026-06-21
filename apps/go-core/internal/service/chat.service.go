@@ -3,7 +3,6 @@ package service
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,16 +14,27 @@ import (
 	"github.com/bimal009/Zovly/internal/config"
 	"github.com/bimal009/Zovly/internal/models"
 	repository "github.com/bimal009/Zovly/internal/repo"
-	"github.com/bimal009/Zovly/pkg/utils"
 	imagekit "github.com/imagekit-developer/imagekit-go/v2"
 	"github.com/imagekit-developer/imagekit-go/v2/option"
 	"github.com/jmoiron/sqlx"
 	"github.com/redis/go-redis/v9"
 )
 
+const maxMediaBytes = 10 * 1024 * 1024 // 10 MB
+
 type ChatService interface {
 	FindOrCreate(ctx context.Context, tx *sqlx.Tx, conv models.CreateConversation) (*models.Conversation, error)
-	HandleFacebookInboundMessage(ctx context.Context, platform models.Platform, pageID string, event models.FacebookMessagingEvent) error
+	StreamMessage(ctx context.Context, platform models.Platform, messageId, businessId, conversationId string, attachments bool) error
+	FetchUserProfile(ctx context.Context, psid, pageToken string) (*models.MessengerProfile, error)
+
+	HandleImageAttachment(ctx context.Context, tx *sqlx.Tx, platform models.Platform, conv *models.Conversation, cred *models.AppCredential, pageID, mediaURL string)
+	HandleAudioAttachment(ctx context.Context, tx *sqlx.Tx, platform models.Platform, conv *models.Conversation, cred *models.AppCredential, pageID, mediaURL string)
+	HandleUnprocessableAttachment(ctx context.Context, tx *sqlx.Tx, platform models.Platform, conv *models.Conversation, cred *models.AppCredential, pageID, mediaURL string, mediaType models.MessageMediaType, label, placeholder string)
+	HandleSharedLink(ctx context.Context, tx *sqlx.Tx, platform models.Platform, conv *models.Conversation, cred *models.AppCredential, attachment models.FacebookAttachment)
+
+	// called by the worker (async) to resolve media → text
+	GetImageDetails(ctx context.Context, fileURL string) (string, error)
+	GetAudioDetails(ctx context.Context, fileURL string) (string, error)
 }
 
 type chatService struct {
@@ -56,216 +66,17 @@ func NewChatService(
 		conversationRepo:  conversationRepo,
 		appCredentialRepo: appCredentialRepo,
 		cfg:               cfg,
-		httpClient:        &http.Client{Timeout: 30 * time.Second},
+		httpClient:        &http.Client{Timeout: 120 * time.Second},
 		rdb:               rdb,
 		log:               log,
 	}
-}
-
-func (s *chatService) HandleFacebookInboundMessage(ctx context.Context, platform models.Platform, pageID string, event models.FacebookMessagingEvent) error {
-	s.log.Info("inbound message received", "platform", platform, "page_id", pageID, "sender", event.Sender.ID)
-
-	cred, err := s.appCredentialRepo.GetByPlatformAccountID(ctx, pageID)
-	if err != nil {
-		s.log.Error("credential lookup failed", "platform_id", pageID, "err", err)
-		return fmt.Errorf("get credential for page %s: %w", pageID, err)
-	}
-
-	encKey, err := base64.StdEncoding.DecodeString(s.cfg.App.EncryptionKey)
-	if err != nil {
-		s.log.Error("decode encryption key failed", "err", err)
-		return fmt.Errorf("decode encryption key: %w", err)
-	}
-	pageToken, err := utils.Decrypt(*cred.AccessToken, encKey)
-	if err != nil {
-		s.log.Error("token decrypt failed", "err", err)
-		return fmt.Errorf("decrypt access token: %w", err)
-	}
-
-	user, err := s.fetchUserProfile(ctx, event.Sender.ID, pageToken)
-	if err != nil {
-		s.log.Error("fetch user profile failed", "sender_id", event.Sender.ID, "err", err)
-		return fmt.Errorf("fetch user profile: %w", err)
-	}
-	s.log.Info("user profile fetched", "name", user.FirstName+" "+user.LastName)
-
-	tx, err := s.db.BeginTxx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback()
-
-	fullName := user.FirstName + " " + user.LastName
-	conv, err := s.conversationRepo.FindOrCreate(ctx, tx, models.CreateConversation{
-		BusinessID:       cred.BusinessID,
-		Platform:         string(platform),
-		ThreadID:         event.Sender.ID,
-		ContactID:        event.Sender.ID,
-		ContactName:      &fullName,
-		ContactAvatarURL: &user.ProfilePic,
-	})
-	if err != nil {
-		s.log.Error("find or create conversation failed", "err", err)
-		return fmt.Errorf("find or create conversation: %w", err)
-	}
-	s.log.Info("conversation ready", "conversation_id", conv.ID, "business_id", cred.BusinessID)
-
-	// 1) User text. Meta can send text and attachments in the SAME event,
-	//    so this runs independently of the attachment loop below.
-	if event.Message.Text != "" {
-		text := event.Message.Text
-
-		insertedMsg, err := s.messageRepo.Create(ctx, tx, models.CreateMessage{
-			ConversationID: conv.ID,
-			BusinessID:     cred.BusinessID,
-			Direction:      models.MessageDirectionIn,
-			SentBy:         nil,
-			Content:        &text,
-			Status:         nil,
-		})
-		if err != nil {
-			s.log.Error("create message failed", "err", err)
-			return fmt.Errorf("create message: %w", err)
-		}
-
-		if err := s.StreamMessage(ctx, platform, insertedMsg.ID, cred.BusinessID, conv.ID, false); err != nil {
-			s.log.Error("stream message failed", "err", err)
-			return fmt.Errorf("stream message: %w", err)
-		}
-	}
-
-	// 2) Attachments. Message creation happens INSIDE each case so every media
-	//    type stores what's relevant to it (e.g. image -> AI description).
-	for _, attachment := range event.Message.Attachments {
-		mediaURL := attachment.Payload.URL
-		uploadedURL, err := s.UploadFileFromURL(ctx, mediaURL, pageID+"_"+attachment.Payload.URL[len(attachment.Payload.URL)-16:])
-		if err != nil {
-			s.log.Warn("imagekit upload failed, using original url", "err", err)
-			uploadedURL = mediaURL
-		}
-
-		switch attachment.Type {
-
-		case models.FacebookAttachmentTypeImage:
-			mediaType := models.MediaTypeImage
-
-			// Describe the image now and store it as Content, so the row has
-			// real text for embedding + the AI reply. Failure is non-fatal:
-			// we still persist the image, just without a description.
-			var content *string
-			if desc, derr := s.GetImageDetails(ctx, uploadedURL); derr != nil {
-				s.log.Warn("get image details failed", "err", derr)
-			} else if desc != "" {
-				content = &desc
-			}
-
-			insertedMsg, err := s.messageRepo.Create(ctx, tx, models.CreateMessage{
-				ConversationID: conv.ID,
-				BusinessID:     cred.BusinessID,
-				Direction:      models.MessageDirectionIn,
-				SentBy:         nil,
-				Content:        content,
-				MediaUrl:       &uploadedURL,
-				MediaType:      &mediaType,
-				Status:         nil,
-			})
-			if err != nil {
-				s.log.Error("create image message failed", "err", err)
-				return fmt.Errorf("create image message: %w", err)
-			}
-
-			if err := s.StreamMessage(ctx, platform, insertedMsg.ID, cred.BusinessID, conv.ID, true); err != nil {
-				s.log.Error("stream image message failed", "err", err)
-				return fmt.Errorf("stream image message: %w", err)
-			}
-
-		case models.FacebookAttachmentTypeAudio:
-			mediaType := models.MediaTypeAudio
-
-			var transcribe *string
-
-			if trans, terr := s.GetAudioDetails(ctx, uploadedURL); terr != nil {
-				s.log.Warn("get audio details failed", "err", terr)
-			} else if trans != "" {
-				transcribe = &trans
-			}
-
-			insertedMsg, err := s.messageRepo.Create(ctx, tx, models.CreateMessage{
-				ConversationID: conv.ID,
-				BusinessID:     cred.BusinessID,
-				Direction:      models.MessageDirectionIn,
-				SentBy:         nil,
-				Content:        transcribe,
-				MediaUrl:       &uploadedURL,
-				MediaType:      &mediaType,
-				Status:         nil,
-			})
-			if err != nil {
-				s.log.Error("create audio message failed", "err", err)
-				return fmt.Errorf("create audio message: %w", err)
-			}
-
-			if err := s.StreamMessage(ctx, platform, insertedMsg.ID, cred.BusinessID, conv.ID, true); err != nil {
-				s.log.Error("stream audio message failed", "err", err)
-				return fmt.Errorf("stream audio message: %w", err)
-			}
-
-		case models.FacebookAttachmentTypeVideo, models.FacebookAttachmentTypeFile:
-			// AI can't read video or arbitrary files — keep the message but
-			// hand the conversation off to a human instead of replying.
-			mediaType := models.MediaTypeVideo
-			if attachment.Type == models.FacebookAttachmentTypeFile {
-				mediaType = models.MediaTypeDocument
-			}
-
-			insertedMsg, err := s.messageRepo.Create(ctx, tx, models.CreateMessage{
-				ConversationID: conv.ID,
-				BusinessID:     cred.BusinessID,
-				Direction:      models.MessageDirectionIn,
-				SentBy:         nil,
-				MediaUrl:       &uploadedURL,
-				MediaType:      &mediaType,
-				Status:         nil,
-			})
-			if err != nil {
-				s.log.Error("create attachment message failed", "type", attachment.Type, "err", err)
-				return fmt.Errorf("create attachment message: %w", err)
-			}
-
-			// TODO: wire your real handoff here, e.g.
-			//   if err := s.conversationRepo.MarkNeedsHuman(ctx, tx, conv.ID); err != nil {
-			//       s.log.Error("mark needs-human failed", "err", err)
-			//       return fmt.Errorf("mark needs-human: %w", err)
-			//   }
-			s.log.Info("attachment needs human handoff",
-				"type", attachment.Type,
-				"conversation_id", conv.ID,
-				"message_id", insertedMsg.ID,
-			)
-
-		default:
-			s.log.Warn("unknown attachment type", "type", attachment.Type)
-			continue
-		}
-	}
-
-	return tx.Commit()
 }
 
 func (s *chatService) FindOrCreate(ctx context.Context, tx *sqlx.Tx, conv models.CreateConversation) (*models.Conversation, error) {
 	return s.conversationRepo.FindOrCreate(ctx, tx, conv)
 }
 
-func (s *chatService) StreamMessage(
-	ctx context.Context,
-	platform models.Platform,
-	messageId string,
-	businessId string,
-	conversationId string,
-	attachments bool,
-
-) error {
-
+func (s *chatService) StreamMessage(ctx context.Context, platform models.Platform, messageId, businessId, conversationId string, attachments bool) error {
 	if _, err := s.rdb.XAdd(ctx, &redis.XAddArgs{
 		Stream: "chat:messages",
 		Values: map[string]interface{}{
@@ -279,17 +90,117 @@ func (s *chatService) StreamMessage(
 		s.log.Error("publish to stream failed", "err", err)
 		return fmt.Errorf("publish message to stream: %w", err)
 	}
-
-	s.log.Info(
-		"message published to stream",
-		"message_id", messageId,
-		"conversation_id", conversationId,
-	)
-
+	s.log.Info("message published to stream", "message_id", messageId, "conversation_id", conversationId)
 	return nil
 }
 
-func (s *chatService) fetchUserProfile(ctx context.Context, psid, pageToken string) (*models.MessengerProfile, error) {
+func (s *chatService) HandleImageAttachment(ctx context.Context, tx *sqlx.Tx, platform models.Platform, conv *models.Conversation, cred *models.AppCredential, pageID, mediaURL string) {
+	mediaType := models.MediaTypeImage
+
+	if size, err := s.checkContentLength(ctx, mediaURL); err == nil && size > maxMediaBytes {
+		s.log.Warn("image exceeds size limit", "size", size)
+		content := "[Customer sent an image that's too large to process]"
+		s.storeMediaMessage(ctx, tx, platform, conv, cred, &content, &mediaURL, &mediaType, false)
+		return
+	}
+
+	uploadedURL, err := s.UploadFileFromURL(ctx, mediaURL, safeFilename(pageID, mediaURL))
+	if err != nil {
+		s.log.Warn("imagekit upload failed, using original url", "err", err)
+		uploadedURL = mediaURL
+	}
+
+	s.storeMediaMessage(ctx, tx, platform, conv, cred, nil, &uploadedURL, &mediaType, true)
+}
+
+func (s *chatService) HandleAudioAttachment(ctx context.Context, tx *sqlx.Tx, platform models.Platform, conv *models.Conversation, cred *models.AppCredential, pageID, mediaURL string) {
+	mediaType := models.MediaTypeAudio
+
+	if size, err := s.checkContentLength(ctx, mediaURL); err == nil && size > maxMediaBytes {
+		s.log.Warn("audio exceeds size limit", "size", size)
+		content := "[Customer sent a voice message that's too large to process]"
+		s.storeMediaMessage(ctx, tx, platform, conv, cred, &content, &mediaURL, &mediaType, false)
+		return
+	}
+
+	uploadedURL, err := s.UploadFileFromURL(ctx, mediaURL, safeFilename(pageID, mediaURL))
+	if err != nil {
+		s.log.Warn("imagekit upload failed, using original url", "err", err)
+		uploadedURL = mediaURL
+	}
+
+	s.storeMediaMessage(ctx, tx, platform, conv, cred, nil, &uploadedURL, &mediaType, true)
+}
+
+func (s *chatService) HandleUnprocessableAttachment(ctx context.Context, tx *sqlx.Tx, platform models.Platform, conv *models.Conversation, cred *models.AppCredential, pageID, mediaURL string, mediaType models.MessageMediaType, label, placeholder string) {
+	content := placeholder
+	storedURL := mediaURL
+
+	if size, err := s.checkContentLength(ctx, mediaURL); err == nil && size > maxMediaBytes {
+		s.log.Warn(label+" exceeds size limit", "size", size)
+		content = fmt.Sprintf("[Customer sent a %s that's too large to process]", label)
+	} else if uploaded, uerr := s.UploadFileFromURL(ctx, mediaURL, safeFilename(pageID, mediaURL)); uerr == nil {
+		storedURL = uploaded
+	} else {
+		s.log.Warn("imagekit upload failed, using original url", "err", uerr)
+	}
+
+	// AI can't process video/file — store with placeholder, do NOT stream
+	s.storeMediaMessage(ctx, tx, platform, conv, cred, &content, &storedURL, &mediaType, false)
+	s.log.Info(label+" needs human handoff", "conversation_id", conv.ID)
+}
+
+func (s *chatService) HandleSharedLink(ctx context.Context, tx *sqlx.Tx, platform models.Platform, conv *models.Conversation, cred *models.AppCredential, attachment models.FacebookAttachment) {
+	mediaType := models.MediaTypeLink
+	link := attachment.Payload.URL
+	content := fmt.Sprintf("[Customer shared a link: %s]", link)
+	s.storeMediaMessage(ctx, tx, platform, conv, cred, &content, &link, &mediaType, true)
+}
+
+func (s *chatService) storeMediaMessage(ctx context.Context, tx *sqlx.Tx, platform models.Platform, conv *models.Conversation, cred *models.AppCredential, content *string, mediaURL *string, mediaType *models.MessageMediaType, stream bool) {
+	insertedMsg, err := s.messageRepo.Create(ctx, tx, models.CreateMessage{
+		ConversationID: conv.ID,
+		BusinessID:     cred.BusinessID,
+		Direction:      models.MessageDirectionIn,
+		SentBy:         nil,
+		Content:        content,
+		MediaUrl:       mediaURL,
+		MediaType:      mediaType,
+		Status:         nil,
+	})
+	if err != nil {
+		s.log.Error("create media message failed", "err", err)
+		return
+	}
+	if stream {
+		if err := s.StreamMessage(ctx, platform, insertedMsg.ID, cred.BusinessID, conv.ID, true); err != nil {
+			s.log.Error("stream media message failed", "err", err)
+		}
+	}
+}
+
+func (s *chatService) checkContentLength(ctx context.Context, fileURL string) (int64, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, fileURL, nil)
+	if err != nil {
+		return 0, fmt.Errorf("build head request: %w", err)
+	}
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("head request: %w", err)
+	}
+	defer resp.Body.Close()
+	return resp.ContentLength, nil
+}
+
+func safeFilename(pageID, rawURL string) string {
+	suffix := rawURL
+	if len(rawURL) > 16 {
+		suffix = rawURL[len(rawURL)-16:]
+	}
+	return pageID + "_" + suffix
+}
+
+func (s *chatService) FetchUserProfile(ctx context.Context, psid, pageToken string) (*models.MessengerProfile, error) {
 	params := url.Values{
 		"fields":       {"first_name,last_name,profile_pic"},
 		"access_token": {pageToken},
@@ -300,7 +211,6 @@ func (s *chatService) fetchUserProfile(ctx context.Context, psid, pageToken stri
 	if err != nil {
 		return nil, fmt.Errorf("build profile request: %w", err)
 	}
-
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("call profile endpoint: %w", err)
@@ -311,7 +221,6 @@ func (s *chatService) fetchUserProfile(ctx context.Context, psid, pageToken stri
 		body, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("profile fetch failed (%d): %s", resp.StatusCode, body)
 	}
-
 	var profile models.MessengerProfile
 	if err := json.NewDecoder(resp.Body).Decode(&profile); err != nil {
 		return nil, fmt.Errorf("decode profile: %w", err)
@@ -319,10 +228,8 @@ func (s *chatService) fetchUserProfile(ctx context.Context, psid, pageToken stri
 	return &profile, nil
 }
 
-func (s *chatService) UploadFileFromURL(ctx context.Context, fileURL string, filename string) (string, error) {
-	client := imagekit.NewClient(
-		option.WithPrivateKey(s.cfg.ImageKit.PrivateKey),
-	)
+func (s *chatService) UploadFileFromURL(ctx context.Context, fileURL, filename string) (string, error) {
+	client := imagekit.NewClient(option.WithPrivateKey(s.cfg.ImageKit.PrivateKey))
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fileURL, nil)
 	if err != nil {
@@ -338,84 +245,48 @@ func (s *chatService) UploadFileFromURL(ctx context.Context, fileURL string, fil
 		return "", fmt.Errorf("download file: unexpected status %d", httpResp.StatusCode)
 	}
 
-	result, err := client.Files.Upload(ctx, imagekit.FileUploadParams{
-		File:     httpResp.Body,
-		FileName: filename,
-	})
+	limited := io.LimitReader(httpResp.Body, maxMediaBytes)
+	result, err := client.Files.Upload(ctx, imagekit.FileUploadParams{File: limited, FileName: filename})
 	if err != nil {
 		return "", fmt.Errorf("imagekit upload: %w", err)
 	}
-
 	return result.URL, nil
 }
 
 func (s *chatService) GetImageDetails(ctx context.Context, fileURL string) (string, error) {
-	payload := map[string]string{"url": fileURL}
-
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return "", fmt.Errorf("marshal image details request: %w", err)
-	}
-
-	endpoint := s.cfg.App.AIServiceURL + "/api/v1/ml/chat/images"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewBuffer(body))
-	if err != nil {
-		return "", fmt.Errorf("build image details request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("call image details endpoint: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		raw, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("image details endpoint returned %d: %s", resp.StatusCode, raw)
-	}
-
-	var result struct {
-		Description string `json:"description"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("decode image details response: %w", err)
-	}
-
-	return result.Description, nil
+	return s.callMediaEndpoint(ctx, "/api/v1/ml/chat/images", fileURL, "description")
 }
-func (s *chatService) GetAudioDetails(ctx context.Context, fileURL string) (string, error) {
-	payload := map[string]string{"url": fileURL}
 
-	body, err := json.Marshal(payload)
+func (s *chatService) GetAudioDetails(ctx context.Context, fileURL string) (string, error) {
+	return s.callMediaEndpoint(ctx, "/api/v1/ml/chat/audio", fileURL, "transcript")
+}
+
+func (s *chatService) callMediaEndpoint(ctx context.Context, path, fileURL, field string) (string, error) {
+	body, err := json.Marshal(map[string]string{"url": fileURL})
 	if err != nil {
-		return "", fmt.Errorf("marshal audio request: %w", err)
+		return "", fmt.Errorf("marshal media request: %w", err)
 	}
 
-	endpoint := s.cfg.App.AIServiceURL + "/api/v1/ml/chat/audio"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewBuffer(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.cfg.App.AIServiceURL+path, bytes.NewReader(body))
 	if err != nil {
-		return "", fmt.Errorf("build audio request: %w", err)
+		return "", fmt.Errorf("build media request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("call audio endpoint: %w", err)
+		return "", fmt.Errorf("call media endpoint: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		raw, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("audio endpoint returned %d: %s", resp.StatusCode, raw)
+		return "", fmt.Errorf("media endpoint %s returned %d: %s", path, resp.StatusCode, raw)
 	}
 
-	var result struct {
-		Transcript string `json:"transcript"`
-	}
+	var result map[string]string
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("decode audio response: %w", err)
+		return "", fmt.Errorf("decode media response: %w", err)
 	}
-	s.log.Info("audio transcript", "transcript", result.Transcript)
-	return result.Transcript, nil
+	return result[field], nil
 }

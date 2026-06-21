@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -82,7 +83,7 @@ func (w *AIWorker) Run(ctx context.Context) {
 		}).Result()
 
 		if err != nil {
-			if err.Error() != "redis: nil" {
+			if !errors.Is(err, redis.Nil) {
 				w.log.Error("stream read failed", "err", err)
 			}
 			continue
@@ -108,15 +109,16 @@ func (w *AIWorker) processAndReply(ctx context.Context, msg redis.XMessage) erro
 	conversationID, _ := msg.Values["conversation_id"].(string)
 	businessID, _ := msg.Values["business_id"].(string)
 	messageID, _ := msg.Values["message_id"].(string)
-	attachments, _ := msg.Values["attachments"].(bool)
 	if conversationID == "" || businessID == "" {
 		return fmt.Errorf("malformed stream entry: missing ids")
 	}
 
 	w.log.Info("processing message", "conversation_id", conversationID, "message_id", messageID)
 
+	// debounce lock — TTL generously exceeds worst-case processing
+	// (15s sleep + media resolution + embed + search + Claude)
 	lockKey := fmt.Sprintf("processing:%s", conversationID)
-	locked, err := w.rdb.SetNX(ctx, lockKey, "1", 30*time.Second).Result()
+	locked, err := w.rdb.SetNX(ctx, lockKey, "1", 90*time.Second).Result()
 	if err != nil {
 		return fmt.Errorf("acquire lock: %w", err)
 	}
@@ -126,12 +128,9 @@ func (w *AIWorker) processAndReply(ctx context.Context, msg redis.XMessage) erro
 	}
 	defer w.rdb.Del(ctx, lockKey)
 
-	timeToSleep := 15
-	if attachments {
-		timeToSleep = 30
-	}
-
-	time.Sleep(time.Duration(timeToSleep) * time.Second)
+	// debounce — wait for more messages in the burst (same window for all types,
+	// since media content is resolved below rather than waited-for)
+	time.Sleep(15 * time.Second)
 
 	unreplied, err := w.messageRepo.GetUnrepliedInbound(ctx, conversationID)
 	if err != nil {
@@ -143,6 +142,37 @@ func (w *AIWorker) processAndReply(ctx context.Context, msg redis.XMessage) erro
 	}
 	w.log.Info("unreplied messages found", "conversation_id", conversationID, "count", len(unreplied))
 
+	// resolve media → text for rows the webhook stored without content.
+	// This is where image-describe / audio-transcribe happens (async, off the
+	// webhook path), and the result is persisted so retries don't reprocess.
+	for i := range unreplied {
+		m := &unreplied[i]
+		if (m.Content != nil && *m.Content != "") || m.MediaUrl == nil || m.MediaType == nil {
+			continue
+		}
+		var text string
+		switch *m.MediaType {
+		case models.MediaTypeImage:
+			if d, derr := w.chatService.GetImageDetails(ctx, *m.MediaUrl); derr == nil {
+				text = d
+			} else {
+				w.log.Warn("describe image failed", "message_id", m.ID, "err", derr)
+			}
+		case models.MediaTypeAudio:
+			if t, terr := w.chatService.GetAudioDetails(ctx, *m.MediaUrl); terr == nil {
+				text = t
+			} else {
+				w.log.Warn("transcribe audio failed", "message_id", m.ID, "err", terr)
+			}
+		}
+		if text != "" {
+			m.Content = &text
+			if err := w.messageRepo.UpdateContent(ctx, m.ID, text); err != nil {
+				w.log.Error("persist media content failed", "message_id", m.ID, "err", err)
+			}
+		}
+	}
+
 	var parts []string
 	for _, m := range unreplied {
 		if m.Content != nil && *m.Content != "" {
@@ -150,7 +180,7 @@ func (w *AIWorker) processAndReply(ctx context.Context, msg redis.XMessage) erro
 		}
 	}
 	if len(parts) == 0 {
-		w.log.Info("media-only messages, nothing to embed", "conversation_id", conversationID)
+		w.log.Info("no resolvable content, skipping", "conversation_id", conversationID)
 		return nil
 	}
 	combined := strings.Join(parts, "\n")
@@ -215,10 +245,11 @@ func (w *AIWorker) processAndReply(ctx context.Context, msg redis.XMessage) erro
 
 	customer, err := w.getCustomerProfile(ctx, conversationID)
 	if err != nil {
+		// can't send a reply without the platform + recipient id — fail (retryable)
 		w.log.Error("customer profile fetch failed", "err", err)
-	} else {
-		w.log.Info("customer loaded", "contact_id", customer.ContactID, "platform", customer.Platform)
+		return fmt.Errorf("customer profile required: %w", err)
 	}
+	w.log.Info("customer loaded", "contact_id", customer.ContactID, "platform", customer.Platform)
 
 	w.log.Info("handing off to trySend", "conversation_id", conversationID, "platform", customer.Platform)
 	return w.trySend(ctx, customer.Platform, businessID, conversationID, customer.ContactID, combined, knowledge, pastChats, business, history, customer)
@@ -330,7 +361,6 @@ func (w *AIWorker) searchKnowledge(ctx context.Context, businessID string, vec p
 }
 
 func (w *AIWorker) searchPastChats(ctx context.Context, businessID, conversationID string, vec pgvector.Vector, k int) ([]models.PastChatChunk, error) {
-	// exclude the current conversation — those messages belong in history, not "similar past chats"
 	query := `
 		SELECT content, conversation_id, 1 - (embedding <=> $1) AS score
 		FROM message_embeddings
@@ -345,7 +375,7 @@ func (w *AIWorker) searchPastChats(ctx context.Context, businessID, conversation
 
 	filtered := make([]models.PastChatChunk, 0, len(results))
 	for _, r := range results {
-		if r.Score >= 0.85 { // higher bar for past chats than knowledge
+		if r.Score >= 0.85 {
 			filtered = append(filtered, r)
 		}
 	}
@@ -369,8 +399,6 @@ func (w *AIWorker) getCustomerProfile(ctx context.Context, conversationID string
 }
 
 func (w *AIWorker) getConversationHistory(ctx context.Context, conversationID string, n int) ([]models.Message, error) {
-	// inner query selects the latest N (DESC LIMIT), outer sorts them
-	// chronologically (ASC) for the LLM — no Go-side reversal needed
 	query := `
 		SELECT * FROM (
 			SELECT * FROM messages
@@ -384,9 +412,9 @@ func (w *AIWorker) getConversationHistory(ctx context.Context, conversationID st
 	if err := w.db.SelectContext(ctx, &results, query, conversationID, n); err != nil {
 		return nil, err
 	}
-
 	return results, nil
 }
+
 func (w *AIWorker) trySend(
 	ctx context.Context,
 	platform, businessID, conversationID, recipientID, message string,
@@ -411,8 +439,7 @@ func (w *AIWorker) trySend(
 	reply, err := w.callChatReply(ctx, businessID, message, knowledge, pastChats, business, history, customer)
 	if err != nil {
 		w.rdb.Decr(ctx, rateLimitKey)
-		// return error so the stream message is NOT acked and will be retried
-		return fmt.Errorf("chat reply: %w", err)
+		return fmt.Errorf("chat reply: %w", err) // not acked → retried
 	}
 	w.log.Info("AI reply received", "conversation_id", conversationID, "reply_len", len(reply))
 
@@ -442,7 +469,6 @@ func (w *AIWorker) trySend(
 	}
 	w.log.Info("outbound message saved", "message_id", outbound.ID, "conversation_id", conversationID)
 
-	w.log.Info("fetching credentials", "business_id", businessID, "platform", platform)
 	creds, err := w.credentialRepo.ListByApp(ctx, businessID, platform)
 	if err != nil || len(creds) == 0 {
 		w.log.Error("no credential found", "business_id", businessID, "platform", platform)
@@ -493,7 +519,7 @@ func (w *AIWorker) sendMessengerReply(ctx context.Context, pageToken, recipientI
 	payload := map[string]interface{}{
 		"recipient":      map[string]string{"id": recipientID},
 		"message":        map[string]string{"text": text},
-		"messaging_type": "RESPONSE", // replying within the 24h window
+		"messaging_type": "RESPONSE",
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -523,11 +549,9 @@ func (w *AIWorker) sendMessengerReply(ctx context.Context, pageToken, recipientI
 		}
 		return "", fmt.Errorf("messenger send failed (%d): %s", resp.StatusCode, rawBody)
 	}
-
 	return result.MessageID, nil
 }
 
-// sendInstagramReply sends a text reply via Instagram DM.
 func (w *AIWorker) sendInstagramReply(ctx context.Context, igToken, recipientID, text string) (string, error) {
 	payload := map[string]interface{}{
 		"recipient": map[string]string{"id": recipientID},
@@ -562,7 +586,6 @@ func (w *AIWorker) sendInstagramReply(ctx context.Context, igToken, recipientID,
 		}
 		return "", fmt.Errorf("instagram send failed (%d): %s", resp.StatusCode, rawBody)
 	}
-
 	return result.MessageID, nil
 }
 
