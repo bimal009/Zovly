@@ -35,6 +35,12 @@ type ChatService interface {
 	// called by the worker (async) to resolve media → text
 	GetImageDetails(ctx context.Context, fileURL string) (string, error)
 	GetAudioDetails(ctx context.Context, fileURL string) (string, error)
+
+	HandleSharedContent(
+		ctx context.Context, tx *sqlx.Tx, platform models.Platform,
+		conv *models.Conversation, cred *models.AppCredential,
+		contentURL, label string,
+	)
 }
 
 type chatService struct {
@@ -289,4 +295,14 @@ func (s *chatService) callMediaEndpoint(ctx context.Context, path, fileURL, fiel
 		return "", fmt.Errorf("decode media response: %w", err)
 	}
 	return result[field], nil
+}
+
+func (s *chatService) HandleSharedContent(
+	ctx context.Context, tx *sqlx.Tx, platform models.Platform,
+	conv *models.Conversation, cred *models.AppCredential,
+	contentURL, label string,
+) {
+	mediaType := models.MediaTypeLink
+	content := fmt.Sprintf("[Customer shared a %s: %s]", label, contentURL)
+	s.storeMediaMessage(ctx, tx, platform, conv, cred, &content, &contentURL, &mediaType, true)
 }

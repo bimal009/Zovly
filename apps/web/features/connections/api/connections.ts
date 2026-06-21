@@ -43,3 +43,10 @@ export const subscribeMessengerPage = async (pageId: string) => {
   );
   return res.data;
 };
+
+export const subscribeInstagramWebhook = async () => {
+  const res = await axiosInstance.post<ApiResponse<null>>(
+    "/api/v1/connections/instagram/subscribe",
+  );
+  return res.data;
+};

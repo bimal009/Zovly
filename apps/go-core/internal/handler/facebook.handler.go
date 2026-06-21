@@ -316,6 +316,75 @@ func (h *FacebookHandler) SubscribeMessengerWebhook(c *gin.Context) {
 	c.JSON(http.StatusOK, responses.Success[any]("page subscribed to messenger", nil))
 }
 
+// VerifyWebhook handles Meta's GET verification challenge for the Facebook webhook.
+func (h *FacebookHandler) VerifyWebhook(c *gin.Context) {
+	challenge := c.Query("hub.challenge")
+	token := c.Query("hub.verify_token")
+
+	if token == h.cfg.Meta.WebhookVerifyToken {
+		h.log.Info("facebook webhook verified")
+		c.String(http.StatusOK, challenge)
+		return
+	}
+
+	h.log.Warn("facebook webhook verification failed")
+	c.Status(http.StatusForbidden)
+}
+
+// Webhook receives Facebook Page messaging events. Signature is verified with
+// META_APP_SECRET.
+func (h *FacebookHandler) Webhook(c *gin.Context) {
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		h.log.Error("failed to read facebook webhook body", "error", err)
+		c.Status(http.StatusBadRequest)
+		return
+	}
+
+	sig := c.GetHeader("X-Hub-Signature-256")
+	if !verifyMetaSignature(body, sig, h.cfg.Meta.AppSecret) {
+		h.log.Warn("facebook webhook signature mismatch")
+		c.Status(http.StatusUnauthorized)
+		return
+	}
+
+	var payload models.FacebookWebhookPayload
+	if err := json.Unmarshal(body, &payload); err != nil {
+		h.log.Error("failed to parse facebook payload", "error", err)
+		c.Status(http.StatusBadRequest)
+		return
+	}
+
+	// Guard against misrouted events. FB and IG share an app secret, so an
+	// Instagram event delivered to this endpoint would otherwise pass the
+	// signature check and be processed as a Page message. Instagram must point
+	// at /webhook/meta/instagram.
+	if payload.Object != "page" {
+		h.log.Warn("facebook webhook received unexpected object — check dashboard callback URL", "object", payload.Object)
+		c.Status(http.StatusOK)
+		return
+	}
+
+	for _, entry := range payload.Entry {
+		for _, event := range entry.Messaging {
+			if event.Message == nil || event.Message.IsEcho {
+				continue
+			}
+			pageID := event.Recipient.ID
+			if pageID == "" {
+				pageID = entry.ID
+			}
+			if err := h.facebookService.HandleFacebookInboundMessage(
+				c.Request.Context(), models.PlatformFacebook, pageID, event,
+			); err != nil {
+				h.log.Error("handle facebook message failed", "page_id", pageID, "error", err)
+			}
+		}
+	}
+
+	c.Status(http.StatusOK)
+}
+
 func (h *FacebookHandler) handleComment(ctx context.Context, pageID string, change models.FacebookChangeEvent) {
 	h.log.Info("page comment received",
 		"page_id", pageID,

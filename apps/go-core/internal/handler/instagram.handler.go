@@ -113,35 +113,6 @@ type igProfileResponse struct {
 	Username string `json:"username"`
 }
 
-func (h *InstagramHandler) fetchUserProfile(ctx context.Context, accessToken string) (*igProfileResponse, error) {
-	params := url.Values{
-		"fields":       {"id,username"},
-		"access_token": {accessToken},
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		"https://graph.instagram.com/me?"+params.Encode(), nil)
-	if err != nil {
-		return nil, fmt.Errorf("build ig profile request: %w", err)
-	}
-
-	resp, err := h.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("call ig profile endpoint: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("ig profile fetch failed (%d): %s", resp.StatusCode, body)
-	}
-
-	var result igProfileResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode ig profile response: %w", err)
-	}
-	return &result, nil
-}
-
 func (h *InstagramHandler) exchangeForLongLivedToken(ctx context.Context, shortLivedToken string) (*models.IgLongLivedResponse, error) {
 	params := url.Values{
 		"grant_type":    {"ig_exchange_token"},
@@ -208,14 +179,20 @@ func (h *InstagramHandler) InstagramCallback(c *gin.Context) {
 		return
 	}
 
-	profile, err := h.fetchUserProfile(ctx, longLived.AccessToken)
+	profile, err := h.instagramService.FetchUserProfile(ctx, longLived.AccessToken)
 	if err != nil {
 		h.log.Error("failed to fetch instagram profile", "business_id", businessID, "error", err)
 		c.JSON(http.StatusInternalServerError, responses.InternalServerError("failed to fetch instagram profile"))
 		return
 	}
 
-	igUserID := strconv.FormatInt(shortLived.UserID, 10)
+	// Webhooks identify the account by its Instagram professional account ID
+	// (the /me user_id field), NOT the OAuth token's app-scoped user_id. Storing
+	// the wrong one makes inbound-message credential lookups miss.
+	igUserID := profile.UserID
+	if igUserID == "" {
+		igUserID = strconv.FormatInt(shortLived.UserID, 10) // fallback
+	}
 	if err := h.instagramService.SaveConnection(ctx, businessID, igUserID, profile.Username, longLived); err != nil {
 		h.log.Error("failed to save instagram connection", "business_id", businessID, "error", err)
 		c.JSON(http.StatusInternalServerError, responses.InternalServerError("failed to save connection"))
@@ -240,4 +217,101 @@ func (h *InstagramHandler) GetConnectionStatus(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, responses.Success("instagram connection status", status))
+}
+
+// SubscribeWebhook subscribes the connected Instagram account to messaging
+// webhook fields and stamps webhook_subscribed_at. Mirrors the Facebook
+// messenger subscribe endpoint.
+func (h *InstagramHandler) SubscribeWebhook(c *gin.Context) {
+	businessID, ok := businessIDFromCtx(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, responses.Unauthorized("unauthorized"))
+		return
+	}
+
+	if err := h.instagramService.SubscribeWebhook(c.Request.Context(), businessID); err != nil {
+		h.log.Error("failed to subscribe instagram webhook", "business_id", businessID, "error", err)
+		c.JSON(http.StatusInternalServerError, responses.InternalServerError("failed to subscribe instagram webhook"))
+		return
+	}
+
+	h.log.Info("instagram webhook subscribed", "business_id", businessID)
+	c.JSON(http.StatusOK, responses.Success[any]("instagram subscribed to webhooks", nil))
+}
+
+// VerifyWebhook handles Meta's GET verification challenge for the Instagram webhook.
+func (h *InstagramHandler) VerifyWebhook(c *gin.Context) {
+	challenge := c.Query("hub.challenge")
+	token := c.Query("hub.verify_token")
+
+	if token == h.cfg.Meta.WebhookVerifyToken {
+		h.log.Info("instagram webhook verified")
+		c.String(http.StatusOK, challenge)
+		return
+	}
+
+	h.log.Warn("instagram webhook verification failed")
+	c.Status(http.StatusForbidden)
+}
+
+// Webhook receives Instagram messaging events. Signature is verified with
+// IG_APP_SECRET (separate from the Facebook app secret).
+func (h *InstagramHandler) Webhook(c *gin.Context) {
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		h.log.Error("failed to read instagram webhook body", "error", err)
+		c.Status(http.StatusBadRequest)
+		return
+	}
+
+	// Instagram is connected via the Instagram Login app (IG_APP_ID), so Meta
+	// signs its webhooks with IG_APP_SECRET — distinct from the Facebook app's
+	// META_APP_SECRET.
+	sig := c.GetHeader("X-Hub-Signature-256")
+	if !verifyMetaSignature(body, sig, h.cfg.Instagram.AppSecret) {
+		h.log.Warn("instagram webhook signature mismatch")
+		c.Status(http.StatusUnauthorized)
+		return
+	}
+
+	var payload models.InstagramWebhookPayload
+	if err := json.Unmarshal(body, &payload); err != nil {
+		h.log.Error("failed to parse instagram payload", "error", err)
+		c.Status(http.StatusBadRequest)
+		return
+	}
+
+	// Guard against misrouted events — only handle Instagram objects here.
+	if payload.Object != "instagram" {
+		h.log.Warn("instagram webhook received unexpected object — check dashboard callback URL", "object", payload.Object)
+		c.Status(http.StatusOK)
+		return
+	}
+
+	h.log.Info("instagram webhook received", "body", string(body))
+
+	for _, entry := range payload.Entry {
+		h.log.Info("instagram entry", "id", entry.ID, "messaging_count", len(entry.Messaging), "changes_count", len(entry.Changes))
+		for _, igEvent := range entry.Messaging {
+			if igEvent.Message == nil {
+				h.log.Warn("instagram event skipped: no message field (likely message_edit/seen/reaction)")
+				continue
+			}
+			if igEvent.Message.IsEcho {
+				h.log.Info("instagram event skipped: echo")
+				continue
+			}
+			accountID := igEvent.Recipient.ID
+			if accountID == "" {
+				accountID = entry.ID
+			}
+			if err := h.instagramService.HandleInstagramInboundMessage(
+				c.Request.Context(), models.PlatformInstagram, accountID, igEvent,
+			); err != nil {
+				h.log.Error("handle instagram message failed", "account_id", accountID, "error", err)
+			}
+		}
+	}
+
+	c.Status(http.StatusOK)
 }

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Poppins } from "next/font/google";
 import { NuqsAdapter } from "nuqs/adapters/next/app";
+import { Toaster } from "@repo/ui/components/ui/sonner";
 import "@repo/ui/globals.css";
 import QueryProviders from "@/lib/providers/QueryProvider";
 
@@ -26,6 +27,7 @@ export default function RootLayout({
         <NuqsAdapter>
           <QueryProviders>{children}</QueryProviders>
         </NuqsAdapter>
+        <Toaster richColors position="top-right" />
       </body>
     </html>
   );

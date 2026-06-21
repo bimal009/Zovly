@@ -31,9 +31,15 @@ type InstagramMessagingEvent struct {
 	Timestamp int64             `json:"timestamp"          db:"timestamp"`
 	Message   *InstagramMessage `json:"message,omitempty"  db:"message"`
 }
-
 type InstagramUser struct {
-	ID string `json:"id" db:"id"`
+	ID             string `json:"id"                  db:"id"`
+	UserID         string `json:"user_id"             db:"user_id"` // IG professional account ID — matches webhook entry.id
+	Username       string `json:"username"            db:"username"`
+	ProfilePic     string `json:"profile_picture_url" db:"profile_pic"`
+	Name           string `json:"name"                db:"name"`
+	FollowersCount int    `json:"followers_count"     db:"followers_count"`
+	FollowsCount   int    `json:"follows_count"       db:"follows_count"`
+	MediaCount     int    `json:"media_count"         db:"media_count"`
 }
 
 type InstagramAttachmentType string

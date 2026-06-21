@@ -17,7 +17,7 @@ type AppCredentialRepo interface {
 	UpdateToken(ctx context.Context, id, encToken string, expiresAt time.Time) error
 	MarkTokenError(ctx context.Context, id, errMsg string) error
 	ListByApp(ctx context.Context, businessID, appName string) ([]models.AppCredential, error)
-	UpdateWebhookSubscribed(ctx context.Context, businessID, platformAccountID string) error
+	UpdateWebhookSubscribed(ctx context.Context, businessID, platformAccountID, appName string) error
 	GetByPlatformAccountID(ctx context.Context, platformID string) (models.AppCredential, error)
 }
 
@@ -140,12 +140,12 @@ func (r *appCredentialRepo) MarkTokenError(ctx context.Context, id, errMsg strin
 	return nil
 }
 
-func (r *appCredentialRepo) UpdateWebhookSubscribed(ctx context.Context, businessID, platformAccountID string) error {
+func (r *appCredentialRepo) UpdateWebhookSubscribed(ctx context.Context, businessID, platformAccountID, appName string) error {
 	_, err := r.db.ExecContext(ctx, `
 		UPDATE app_credentials
 		SET webhook_subscribed_at = now(), updated_at = now()
-		WHERE business_id = $1 AND platform_account_id = $2 AND app_name = 'facebook'
-	`, businessID, platformAccountID)
+		WHERE business_id = $1 AND platform_account_id = $2 AND app_name = $3
+	`, businessID, platformAccountID, appName)
 	if err != nil {
 		return fmt.Errorf("update webhook subscribed: %w", err)
 	}

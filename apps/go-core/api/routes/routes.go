@@ -16,17 +16,20 @@ func RegisterAll(
 	faqHandler *handler.FaqHandler,
 	facebookHandler *handler.FacebookHandler,
 	instagramHandler *handler.InstagramHandler,
-	chatHandler *handler.ChatHandler,
 	inboxHandler *handler.InboxHandler,
 	authMiddleware gin.HandlerFunc,
 	businessMiddleware gin.HandlerFunc,
 
 ) {
-	// Public webhook endpoints — no auth middleware (called by Meta servers)
+	// Public webhook endpoints — no auth middleware (called by Meta servers).
+	// Facebook and Instagram are separate routes, each verified with its own
+	// app secret (META_APP_SECRET vs IG_APP_SECRET).
 	webhook := api.Group("/webhook/meta")
 	{
-		webhook.GET("/facebook", chatHandler.HandleChallenge)
-		webhook.POST("/facebook", chatHandler.MetaWebhook)
+		webhook.GET("/facebook", facebookHandler.VerifyWebhook)
+		webhook.POST("/facebook", facebookHandler.Webhook)
+		webhook.GET("/instagram", instagramHandler.VerifyWebhook)
+		webhook.POST("/instagram", instagramHandler.Webhook)
 	}
 
 	plans := api.Group("/plans")
@@ -102,5 +105,7 @@ func RegisterAll(
 		{
 			messengerPages.POST("/:pageId/subscribe", facebookHandler.SubscribeMessengerWebhook)
 		}
+
+		connections.POST("/instagram/subscribe", instagramHandler.SubscribeWebhook)
 	}
 }

@@ -236,7 +236,7 @@ func (s *facebookService) SubscribeMessengerPage(ctx context.Context, businessID
 		return fmt.Errorf("subscribe page webhooks: %w", err)
 	}
 
-	if err := s.appCredentialRepo.UpdateWebhookSubscribed(ctx, businessID, pageID); err != nil {
+	if err := s.appCredentialRepo.UpdateWebhookSubscribed(ctx, businessID, pageID, "facebook"); err != nil {
 		return fmt.Errorf("mark webhook subscribed: %w", err)
 	}
 	return nil
@@ -299,7 +299,6 @@ func (s *facebookService) fetchPageDetails(ctx context.Context, pageID, pageToke
 }
 
 // ── inbound message handling ─────────────────────────────────────────
-
 func (s *facebookService) HandleFacebookInboundMessage(ctx context.Context, platform models.Platform, pageID string, event models.FacebookMessagingEvent) error {
 	s.log.Info("inbound message received", "platform", platform, "page_id", pageID, "sender", event.Sender.ID)
 
@@ -322,8 +321,8 @@ func (s *facebookService) HandleFacebookInboundMessage(ctx context.Context, plat
 
 	user, err := s.chatService.FetchUserProfile(ctx, event.Sender.ID, pageToken)
 	if err != nil {
-		s.log.Error("fetch user profile failed", "sender_id", event.Sender.ID, "err", err)
-		return fmt.Errorf("fetch user profile: %w", err)
+		s.log.Warn("fetch user profile failed, using fallback", "sender_id", event.Sender.ID, "err", err)
+		user = &models.MessengerProfile{}
 	}
 	s.log.Info("user profile fetched", "name", user.FirstName+" "+user.LastName)
 
