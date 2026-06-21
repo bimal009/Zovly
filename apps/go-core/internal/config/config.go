@@ -56,9 +56,7 @@ type OAuthConfig struct {
 }
 
 type RedisConfig struct {
-	Addr     string `env:"REDIS_ADDR,required"`     // localhost:6379
-	Password string `env:"REDIS_PASSWORD"`          // optional
-	DB       int    `env:"REDIS_DB" envDefault:"0"` // default database
+	Url string `env:"REDIS_URL,required"` // localhost:6379
 }
 
 // type ResendConfig struct {

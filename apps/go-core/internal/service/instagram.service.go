@@ -307,12 +307,28 @@ func (s *instagramService) HandleInstagramInboundMessage(ctx context.Context, pl
 		return fmt.Errorf("decrypt access token: %w", err)
 	}
 
+	// TEMP DEBUG — prints a live access token in plaintext so the profile API
+	// can be curled manually. REMOVE before production.
+	s.log.Warn("DEBUG instagram profile curl",
+		"sender_id", event.Sender.ID,
+		"access_token", instagramToken,
+		"curl", fmt.Sprintf(
+			"curl -s \"https://graph.instagram.com/v25.0/%s?fields=name,username,profile_pic,follower_count,is_user_follow_business,is_business_follow_user&access_token=%s\"",
+			event.Sender.ID, instagramToken,
+		),
+	)
+
 	senderProfile, err := s.fetchSenderProfile(ctx, event.Sender.ID, instagramToken)
 	if err != nil {
 		s.log.Warn("fetch sender profile failed, using fallback", "sender_id", event.Sender.ID, "err", err)
 		senderProfile = &models.InstagramUser{}
 	}
-	s.log.Info("sender profile fetched", "username", senderProfile.Username)
+	s.log.Info("sender profile fetched",
+		"sender_id", event.Sender.ID,
+		"name", senderProfile.Name,
+		"username", senderProfile.Username,
+		"has_avatar", senderProfile.ProfilePic != "",
+	)
 
 	tx, err := s.db.BeginTxx(ctx, nil)
 	if err != nil {
@@ -397,8 +413,11 @@ func (s *instagramService) HandleInstagramInboundMessage(ctx context.Context, pl
 }
 
 func (s *instagramService) fetchSenderProfile(ctx context.Context, senderID, accessToken string) (*models.InstagramUser, error) {
+	// The Instagram messaging User Profile API exposes the avatar under
+	// "profile_pic" — "profile_picture_url" is only valid on the business's
+	// own /me profile and returns "nonexisting field" here.
 	params := url.Values{
-		"fields":       {"name,username,profile_picture_url"},
+		"fields":       {"name,username,profile_pic,follower_count,is_user_follow_business,is_business_follow_user"},
 		"access_token": {accessToken},
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
@@ -413,16 +432,45 @@ func (s *instagramService) fetchSenderProfile(ctx context.Context, senderID, acc
 	}
 	defer resp.Body.Close()
 
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read sender profile response: %w", err)
+	}
+
+	// TEMP DEBUG — dump the raw profile API response. REMOVE after diagnosing.
+	s.log.Info("DEBUG sender profile raw", "sender_id", senderID, "status", resp.StatusCode, "raw", string(body))
+
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("sender profile fetch failed (%d): %s", resp.StatusCode, body)
 	}
 
-	var result models.InstagramUser
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	var result struct {
+		ID                   string `json:"id"`
+		Name                 string `json:"name"`
+		Username             string `json:"username"`
+		ProfilePic           string `json:"profile_pic"`
+		FollowerCount        int    `json:"follower_count"`
+		IsUserFollowBusiness bool   `json:"is_user_follow_business"`
+		IsBusinessFollowUser bool   `json:"is_business_follow_user"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("decode sender profile: %w", err)
 	}
-	return &result, nil
+
+	// Instagram returns 200 even when profile fields are withheld — typically
+	// because the app only has Standard/Development access for
+	// instagram_business_manage_messages (the profile API then only returns
+	// data for users who hold an app role). Log the raw payload so an empty
+	// contact name can be traced to what the API actually returned.
+	if result.Name == "" || result.Username == "" {
+		s.log.Warn("sender profile fields missing", "sender_id", senderID, "raw", string(body))
+	}
+	return &models.InstagramUser{
+		ID:         result.ID,
+		Name:       result.Name,
+		Username:   result.Username,
+		ProfilePic: result.ProfilePic,
+	}, nil
 }
 
 func (s *instagramService) FetchUserProfile(ctx context.Context, accessToken string) (*models.InstagramUser, error) {

@@ -268,7 +268,7 @@ func (h *InstagramHandler) Webhook(c *gin.Context) {
 	// signs its webhooks with IG_APP_SECRET — distinct from the Facebook app's
 	// META_APP_SECRET.
 	sig := c.GetHeader("X-Hub-Signature-256")
-	if !verifyMetaSignature(body, sig, h.cfg.Instagram.AppSecret) {
+	if !verifyMetaSignature(body, sig, h.cfg.Meta.AppSecret) {
 		h.log.Warn("instagram webhook signature mismatch")
 		c.Status(http.StatusUnauthorized)
 		return
@@ -291,14 +291,13 @@ func (h *InstagramHandler) Webhook(c *gin.Context) {
 	h.log.Info("instagram webhook received", "body", string(body))
 
 	for _, entry := range payload.Entry {
-		h.log.Info("instagram entry", "id", entry.ID, "messaging_count", len(entry.Messaging), "changes_count", len(entry.Changes))
 		for _, igEvent := range entry.Messaging {
 			if igEvent.Message == nil {
-				h.log.Warn("instagram event skipped: no message field (likely message_edit/seen/reaction)")
+				// non-message events (message_edit/seen/reaction) — ignore
 				continue
 			}
 			if igEvent.Message.IsEcho {
-				h.log.Info("instagram event skipped: echo")
+				// our own outbound message echoed back — ignore
 				continue
 			}
 			accountID := igEvent.Recipient.ID

@@ -3,16 +3,16 @@ package redis
 import (
 	"context"
 
-	"github.com/bimal009/Zovly/internal/config"
 	"github.com/redis/go-redis/v9"
 )
 
-func NewRedis(cfg config.RedisConfig) (*redis.Client, error) {
-	rdb := redis.NewClient(&redis.Options{
-		Addr:     cfg.Addr,
-		Password: cfg.Password,
-		DB:       0,
-	})
+func NewRedis(redisURL string) (*redis.Client, error) {
+	opts, err := redis.ParseURL(redisURL)
+	if err != nil {
+		return nil, err
+	}
+
+	rdb := redis.NewClient(opts)
 
 	ctx := context.Background()
 

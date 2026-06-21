@@ -3,7 +3,15 @@
 import { useState } from "react";
 import { useConversations, useMessages } from "../client/inbox";
 import { Conversation, Message, Platform } from "../types/inbox";
-import { IconSearch, IconInbox, IconRobot, IconUser } from "@tabler/icons-react";
+import {
+  IconSearch,
+  IconInbox,
+  IconRobot,
+  IconUser,
+  IconFileText,
+  IconDownload,
+  IconVideo,
+} from "@tabler/icons-react";
 
 // ─── platform assets ──────────────────────────────────────────────────────────
 
@@ -71,6 +79,18 @@ function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 }
 
+// Instagram/Facebook often withhold profile name + username (e.g. apps without
+// Advanced Access), so those fields arrive as empty strings — `??` won't catch
+// those. Treat blank/whitespace as missing and degrade to a platform label
+// rather than showing a raw numeric contact id or an empty name.
+function contactDisplayName(c: Conversation): string {
+  const name = c.contact_name?.trim();
+  if (name) return name;
+  const username = c.contact_username?.trim();
+  if (username) return username;
+  return c.platform === "instagram" ? "Instagram user" : "Facebook user";
+}
+
 function Avatar({
   name,
   avatarUrl,
@@ -120,7 +140,7 @@ function ConversationItem({
   selected: boolean;
   onClick: () => void;
 }) {
-  const name = conv.contact_name ?? conv.contact_username ?? conv.contact_id;
+  const name = contactDisplayName(conv);
 
   return (
     <button
@@ -149,10 +169,99 @@ function ConversationItem({
   );
 }
 
+// ─── media content ──────────────────────────────────────────────────────────────
+
+function fileNameFromUrl(url: string): string {
+  try {
+    const pathname = new URL(url).pathname;
+    const last = pathname.split("/").filter(Boolean).pop();
+    return last ? decodeURIComponent(last) : "Attachment";
+  } catch {
+    return "Attachment";
+  }
+}
+
+function MediaContent({ msg }: { msg: Message }) {
+  const url = msg.media_url;
+  if (!url) return null;
+
+  switch (msg.media_type) {
+    case "image":
+      return (
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block cursor-pointer overflow-hidden rounded-xl"
+          aria-label="Open image in new tab"
+        >
+          <img
+            src={url}
+            alt={msg.content ?? "Image attachment"}
+            loading="lazy"
+            className="max-h-72 w-full max-w-xs rounded-xl object-cover transition-opacity duration-200 hover:opacity-90"
+          />
+        </a>
+      );
+
+    case "video":
+      return (
+        <video
+          src={url}
+          controls
+          preload="metadata"
+          className="max-h-72 w-full max-w-xs rounded-xl bg-black"
+        >
+          <a href={url} target="_blank" rel="noopener noreferrer">
+            <IconVideo size={14} /> View video
+          </a>
+        </video>
+      );
+
+    case "audio":
+      return (
+        <audio src={url} controls preload="metadata" className="h-10 w-60 max-w-full">
+          <a href={url} target="_blank" rel="noopener noreferrer">
+            Play voice message
+          </a>
+        </audio>
+      );
+
+    case "document":
+    default:
+      return (
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex max-w-xs cursor-pointer items-center gap-2.5 rounded-xl border border-border bg-background/60 px-3 py-2.5 transition-colors duration-200 hover:bg-muted"
+          aria-label={`Download ${fileNameFromUrl(url)}`}
+        >
+          <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-muted">
+            <IconFileText size={18} className="text-muted-foreground" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-xs font-medium text-foreground">
+              {fileNameFromUrl(url)}
+            </span>
+            <span className="block text-[10px] text-muted-foreground capitalize">
+              {msg.media_type ?? "file"}
+            </span>
+          </span>
+          <IconDownload size={15} className="flex-shrink-0 text-muted-foreground" />
+        </a>
+      );
+  }
+}
+
 // ─── message bubble ───────────────────────────────────────────────────────────
 
 function MessageBubble({ msg }: { msg: Message }) {
   const isInbound = msg.direction === "in";
+  const hasMedia = !!msg.media_url;
+  const hasText = !!msg.content;
+  // Voice/audio renders as a bare player; other media keep a bubble background.
+  const bareMedia = hasMedia && !hasText && (msg.media_type === "image" || msg.media_type === "audio" || msg.media_type === "video");
 
   return (
     <div className={`flex ${isInbound ? "justify-start" : "justify-end"} mb-2`}>
@@ -173,15 +282,24 @@ function MessageBubble({ msg }: { msg: Message }) {
           </div>
         )}
 
-        <div
-          className={`px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed ${
-            isInbound
-              ? "bg-muted text-foreground rounded-tl-sm"
-              : "bg-primary text-primary-foreground rounded-tr-sm"
-          }`}
-        >
-          {msg.content ?? <span className="italic text-xs opacity-70">[media]</span>}
-        </div>
+        {bareMedia ? (
+          <MediaContent msg={msg} />
+        ) : (
+          <div
+            className={`flex flex-col gap-2 px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed ${
+              isInbound
+                ? "bg-muted text-foreground rounded-tl-sm"
+                : "bg-primary text-primary-foreground rounded-tr-sm"
+            }`}
+          >
+            {hasMedia && <MediaContent msg={msg} />}
+            {hasText ? (
+              <span className="whitespace-pre-wrap break-words">{msg.content}</span>
+            ) : !hasMedia ? (
+              <span className="italic text-xs opacity-70">[media]</span>
+            ) : null}
+          </div>
+        )}
 
         <div className="flex items-center gap-1.5 px-1">
           <span className="text-[10px] text-muted-foreground">{formatTime(msg.sent_at)}</span>
@@ -199,7 +317,8 @@ function MessageBubble({ msg }: { msg: Message }) {
 function ThreadPanel({ conversation }: { conversation: Conversation }) {
   const { data, isLoading } = useMessages(conversation.id);
   const messages = data?.data ?? [];
-  const name = conversation.contact_name ?? conversation.contact_username ?? conversation.contact_id;
+  const name = contactDisplayName(conversation);
+  const username = conversation.contact_username?.trim();
 
   return (
     <div className="flex flex-col h-full">
@@ -213,9 +332,7 @@ function ThreadPanel({ conversation }: { conversation: Conversation }) {
         </div>
         <div>
           <p className="font-semibold text-sm text-foreground">{name}</p>
-          {conversation.contact_username && (
-            <p className="text-xs text-muted-foreground">@{conversation.contact_username}</p>
-          )}
+          {username && <p className="text-xs text-muted-foreground">@{username}</p>}
         </div>
       </div>
 
