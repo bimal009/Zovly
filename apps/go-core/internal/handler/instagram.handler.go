@@ -108,11 +108,6 @@ func (h *InstagramHandler) exchangeCodeForToken(ctx context.Context, code string
 	return &result, nil
 }
 
-type igProfileResponse struct {
-	ID       string `json:"id"`
-	Username string `json:"username"`
-}
-
 func (h *InstagramHandler) exchangeForLongLivedToken(ctx context.Context, shortLivedToken string) (*models.IgLongLivedResponse, error) {
 	params := url.Values{
 		"grant_type":    {"ig_exchange_token"},

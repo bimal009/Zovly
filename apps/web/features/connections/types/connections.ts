@@ -35,6 +35,9 @@ export type FacebookConnectionStatus = {
 
 export type InstagramConnectionStatus = {
   connected: boolean;
+  // Whether the Instagram account is linked to a Facebook Page (verified via
+  // the Graph API). Required for messaging/AI replies to work.
+  facebook_linked: boolean;
   account: ConnectedPage | null;
 };
 

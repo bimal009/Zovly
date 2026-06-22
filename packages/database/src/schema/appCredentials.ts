@@ -49,11 +49,9 @@ export const appCredentials = pgTable(
   (table) => [
     index("app_cred_business_idx").on(table.businessId),
     index("app_cred_app_name_idx").on(table.appName),
-    unique("app_cred_account_uq").on(
-      table.businessId,
-      table.appName,
-      table.platformAccountId,
-    ),
+    // One credential per app per business (one-to-one): a business can connect
+    // at most one facebook, one instagram, one whatsapp, ... account.
+    unique("app_cred_app_uq").on(table.businessId, table.appName),
   ],
 );
 export type AppCredential = typeof appCredentials.$inferSelect;

@@ -10,7 +10,7 @@ import {
   IconBrandInstagram,
   IconCalendar,
   IconCheck,
-  IconLink,
+  IconCircleCheck,
   IconLoader2,
   IconLock,
   IconMessage,
@@ -111,24 +111,6 @@ function MessagingSection({
         </div>
       </div>
 
-      {/* Facebook Page requirement — Instagram only delivers DMs when the
-          professional account is linked to a Facebook Page. */}
-      <div className="rounded-lg border border-warning/30 bg-warning/10 p-3.5">
-        <div className="flex items-center gap-2">
-          <IconBrandFacebook className="size-4 shrink-0 text-primary" />
-          <IconLink className="text-muted-foreground size-3.5 shrink-0" />
-          <IconBrandInstagram className="size-4 shrink-0 text-primary" />
-          <p className="text-sm font-medium">
-            Link your Facebook Page first
-          </p>
-        </div>
-        <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
-          Connect your Facebook Page with your Instagram professional account to
-          use messaging. Without that link, Instagram won&apos;t deliver DMs and
-          the AI can&apos;t reply.
-        </p>
-      </div>
-
       <ul className="flex flex-col gap-2 text-sm">
         <li className="flex items-center gap-2">
           <IconMessage className="size-4 shrink-0 text-primary" />
@@ -160,7 +142,14 @@ function MessagingSection({
   );
 }
 
-function AccountCard({ account }: { account: ConnectedPage }) {
+function AccountCard({
+  account,
+  facebookLinked,
+}: {
+  account: ConnectedPage;
+  facebookLinked: boolean;
+}) {
+  const params = useParams<{ id: string }>();
   const activate = useActivateInstagram();
   const isActive = account.is_active;
 
@@ -185,7 +174,7 @@ function AccountCard({ account }: { account: ConnectedPage }) {
         </div>
 
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <p className="truncate font-semibold">{name}</p>
             {isActive ? (
               <Badge variant="secondary" className="text-success shrink-0">
@@ -197,6 +186,15 @@ function AccountCard({ account }: { account: ConnectedPage }) {
                 className="text-muted-foreground shrink-0"
               >
                 Not active
+              </Badge>
+            )}
+            {facebookLinked && (
+              <Badge
+                variant="secondary"
+                className="bg-success/15 text-success shrink-0"
+              >
+                <IconCircleCheck className="size-3.5" />
+                Facebook linked
               </Badge>
             )}
           </div>
@@ -223,7 +221,61 @@ function AccountCard({ account }: { account: ConnectedPage }) {
             <span className="font-medium">{expiresAt}</span>
           </div>
         )}
+        {/* Facebook Page link — verified live against the Graph API. */}
+        <div className="flex items-center gap-1.5">
+          {facebookLinked ? (
+            <IconCircleCheck className="text-success size-4" />
+          ) : (
+            <IconAlertTriangle className="text-destructive size-4" />
+          )}
+          <span className="text-muted-foreground">Facebook Page</span>
+          <span
+            className={`font-medium ${
+              facebookLinked ? "text-success" : "text-destructive"
+            }`}
+          >
+            {facebookLinked ? "Linked & verified" : "Not linked"}
+          </span>
+        </div>
       </div>
+
+      {/* Facebook-Page link gate — the IG account is connected, but the Graph
+          API reports it isn't linked to a Facebook Page. Without that link
+          Instagram won't deliver DMs and the AI can't manage conversations. */}
+      {!facebookLinked && (
+        <div className="flex flex-col gap-3 rounded-lg border border-destructive/30 bg-destructive/10 p-4">
+          <div className="flex items-start gap-3">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-destructive/15">
+              <IconAlertTriangle className="text-destructive size-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="font-semibold">Not linked to a Facebook Page</p>
+                <Badge
+                  variant="outline"
+                  className="border-destructive/40 text-destructive shrink-0"
+                >
+                  Action needed
+                </Badge>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                This Instagram account isn&apos;t connected to a Facebook Page.
+                Link it to a Page to manage messages and let the AI reply.
+              </p>
+            </div>
+          </div>
+          <Button
+            asChild
+            variant="outline"
+            className="border-destructive/40 text-destructive hover:bg-destructive/10"
+          >
+            <Link href={`/${params.id}/connections/facebook`}>
+              <IconBrandFacebook className="size-4 text-primary" />
+              Connect to Facebook Page
+            </Link>
+          </Button>
+        </div>
+      )}
 
       {/* Activation gate — the credential is stored inactive after OAuth, so the
           user must explicitly connect it with the app before it does anything. */}
@@ -258,9 +310,12 @@ function AccountCard({ account }: { account: ConnectedPage }) {
         </div>
       )}
 
-      <div className="border-t pt-5">
-        <MessagingSection account={account} active={isActive} />
-      </div>
+      {/* Messaging requires the Facebook-Page link — hide it until that's done. */}
+      {facebookLinked && (
+        <div className="border-t pt-5">
+          <MessagingSection account={account} active={isActive} />
+        </div>
+      )}
     </div>
   );
 }
@@ -369,7 +424,12 @@ export function InstagramConnection() {
         </div>
       </div>
 
-      {status.account && <AccountCard account={status.account} />}
+      {status.account && (
+        <AccountCard
+          account={status.account}
+          facebookLinked={!!status.facebook_linked}
+        />
+      )}
     </div>
   );
 }

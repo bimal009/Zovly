@@ -50,12 +50,13 @@ INSERT INTO app_credentials
 VALUES
 	(:business_id, :app_name, :access_token, :refresh_token, :token_expires_at,
 	 :scopes, :platform_account_id, :platform_account_name, :is_active, :connected_at)
-ON CONFLICT (business_id, app_name, platform_account_id)
+ON CONFLICT (business_id, app_name)
 DO UPDATE SET
 	access_token          = EXCLUDED.access_token,
 	refresh_token         = EXCLUDED.refresh_token,
 	token_expires_at      = EXCLUDED.token_expires_at,
 	scopes                = EXCLUDED.scopes,
+	platform_account_id   = EXCLUDED.platform_account_id,
 	platform_account_name = EXCLUDED.platform_account_name,
 	connected_at          = EXCLUDED.connected_at,
 	disconnected_at       = NULL,

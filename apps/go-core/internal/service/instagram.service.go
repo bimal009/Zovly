@@ -22,13 +22,19 @@ import (
 )
 
 type InstagramConnectionStatus struct {
-	Connected bool                  `json:"connected"`
-	Account   *models.AppCredential `json:"account,omitempty"`
+	Connected bool `json:"connected"`
+	// FacebookLinked reports whether a connected Facebook Page has this
+	// Instagram professional account linked to it (verified via the Graph API).
+	// Instagram only delivers DMs through that link, so the UI prompts the user
+	// to link a Page when this is false.
+	FacebookLinked bool                  `json:"facebook_linked"`
+	Account        *models.AppCredential `json:"account,omitempty"`
 }
 
 type InstagramService interface {
 	SaveConnection(ctx context.Context, businessID, igUserID, igUsername string, token *models.IgLongLivedResponse) error
 	GetConnectionStatus(ctx context.Context, businessID string) (*InstagramConnectionStatus, error)
+	VeirfyFacebookAndInstaConnection(ctx context.Context, businessID string) (bool, error)
 	ActivateConnection(ctx context.Context, businessID string) error
 	RefreshToken(ctx context.Context, accessToken string) (*models.IgLongLivedResponse, error)
 	RefreshExpiringTokens(ctx context.Context) error
@@ -69,6 +75,95 @@ func NewInstagramService(
 	}
 }
 
+// VerifyFacebookAndInstaConnection checks, via the Facebook Graph API, whether
+// any of the business's connected Facebook Pages has an Instagram Business
+// account linked to it. Instagram messaging requires this Page↔IG link, so the
+// connect flow uses this to confirm the link is in place before activating.
+// Returns the linked Instagram business account id (and true) on the first page
+// that reports one.
+func (s *instagramService) VeirfyFacebookAndInstaConnection(ctx context.Context, businessID string) (bool, error) {
+	facebook, err := s.appCredentialRepo.ListByApp(ctx, businessID, string(models.PlatformFacebook))
+	if err != nil {
+		return false, fmt.Errorf("list facebook credentials: %w", err)
+	}
+	if len(facebook) == 0 {
+		return false, nil
+	}
+
+	key, err := base64.StdEncoding.DecodeString(s.cfg.App.EncryptionKey)
+	if err != nil || len(key) != 32 {
+		return false, fmt.Errorf("invalid encryption key configuration")
+	}
+
+	for i := range facebook {
+		fb := facebook[i]
+		if fb.AccessToken == nil || fb.PlatformAccountID == nil {
+			continue
+		}
+
+		pageToken, err := utils.Decrypt(*fb.AccessToken, key)
+		if err != nil {
+			s.log.Error("failed to decrypt facebook page token", "page_id", *fb.PlatformAccountID, "err", err)
+			continue
+		}
+
+		igAccountID, err := s.fetchLinkedInstagramAccount(ctx, *fb.PlatformAccountID, pageToken)
+		if err != nil {
+			s.log.Warn("failed to check instagram link for page", "page_id", *fb.PlatformAccountID, "err", err)
+			continue
+		}
+		if igAccountID != "" {
+			s.log.Info("facebook page linked to instagram business account",
+				"page_id", *fb.PlatformAccountID, "ig_account_id", igAccountID)
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+// fetchLinkedInstagramAccount returns the Instagram Business account id linked to
+// the given Facebook Page, or "" if none is linked. Uses the Page access token.
+//   GET /{page-id}?fields=instagram_business_account
+func (s *instagramService) fetchLinkedInstagramAccount(ctx context.Context, pageID, pageToken string) (string, error) {
+	params := url.Values{
+		"fields":       {"instagram_business_account"},
+		"access_token": {pageToken},
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		fmt.Sprintf("https://graph.facebook.com/v25.0/%s?%s", pageID, params.Encode()), nil)
+	if err != nil {
+		return "", fmt.Errorf("build instagram link request: %w", err)
+	}
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("call instagram link endpoint: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read instagram link response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("instagram link fetch failed (%d): %s", resp.StatusCode, body)
+	}
+
+	var result struct {
+		InstagramBusinessAccount *struct {
+			ID string `json:"id"`
+		} `json:"instagram_business_account"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", fmt.Errorf("decode instagram link response: %w", err)
+	}
+	if result.InstagramBusinessAccount == nil {
+		return "", nil
+	}
+	return result.InstagramBusinessAccount.ID, nil
+}
+
 func (s *instagramService) GetConnectionStatus(ctx context.Context, businessID string) (*InstagramConnectionStatus, error) {
 	conn, err := s.appRepo.GetByBusinessID(ctx, businessID)
 	if err != nil && err != sql.ErrNoRows {
@@ -88,7 +183,20 @@ func (s *instagramService) GetConnectionStatus(ctx context.Context, businessID s
 		account = &creds[0]
 	}
 
-	return &InstagramConnectionStatus{Connected: true, Account: account}, nil
+	// Confirm the IG account is actually linked to a Facebook Page — without
+	// that link Instagram won't deliver DMs and the AI can't reply. A failure
+	// here shouldn't break the status call, so we just treat it as "not linked".
+	facebookLinked, err := s.VeirfyFacebookAndInstaConnection(ctx, businessID)
+	if err != nil {
+		s.log.Warn("failed to verify facebook-instagram link", "business_id", businessID, "err", err)
+		facebookLinked = false
+	}
+
+	return &InstagramConnectionStatus{
+		Connected:      true,
+		FacebookLinked: facebookLinked,
+		Account:        account,
+	}, nil
 }
 
 // ActivateConnection flips the business's Instagram credential to active. The
@@ -131,8 +239,8 @@ func (s *instagramService) SaveConnection(ctx context.Context, businessID, igUse
 		Scopes:              pq.StringArray{"instagram_business_basic", "instagram_business_content_publish", "instagram_business_manage_comments", "instagram_business_manage_messages"},
 		// Stored inactive on connect — the user must explicitly click "Connect with
 		// app" in the UI to activate the credential (ActivateConnection).
-		IsActive:            false,
-		ConnectedAt:         &now,
+		IsActive:    false,
+		ConnectedAt: &now,
 	}
 
 	if err := s.appCredentialRepo.Upsert(ctx, tx, cred); err != nil {
