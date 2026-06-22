@@ -43,8 +43,8 @@ function MessengerPageCard({ page }: { page: ConnectedPage }) {
               className="size-12 shrink-0 rounded-full object-cover"
             />
           ) : (
-            <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-[#0084FF]/10">
-              <IconBrandMessenger className="size-6 text-[#0084FF]" />
+            <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-primary/10">
+              <IconBrandMessenger className="size-6 text-primary" />
             </div>
           )}
 
@@ -52,7 +52,7 @@ function MessengerPageCard({ page }: { page: ConnectedPage }) {
             <div className="flex items-center gap-2">
               <p className="truncate font-semibold">{name}</p>
               {isSubscribed ? (
-                <Badge variant="secondary" className="shrink-0 text-green-600">
+                <Badge variant="secondary" className="text-success shrink-0">
                   Connected
                 </Badge>
               ) : (
@@ -93,7 +93,7 @@ function MessengerPageCard({ page }: { page: ConnectedPage }) {
           ) : (
             <Button
               size="sm"
-              className="flex-1 bg-[#0084FF] hover:bg-[#0084FF]/90"
+              className="flex-1"
               onClick={() => setConfirmOpen(true)}
               disabled={subscribe.isPending}
             >
@@ -109,7 +109,7 @@ function MessengerPageCard({ page }: { page: ConnectedPage }) {
 
         {isSubscribed && page.webhook_subscribed_at && (
           <p className="text-muted-foreground flex items-center gap-1 text-xs">
-            <IconCheck className="size-3 text-green-500" />
+            <IconCheck className="text-success size-3" />
             Subscribed{" "}
             {new Date(page.webhook_subscribed_at).toLocaleDateString()}
           </p>
@@ -153,8 +153,8 @@ export function MessengerConnection() {
   if (!status?.connected) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-5 py-24 text-center">
-        <div className="flex size-20 items-center justify-center rounded-full bg-[#0084FF]/10">
-          <IconBrandMessenger className="size-10 text-[#0084FF]" />
+        <div className="flex size-20 items-center justify-center rounded-full bg-primary/10">
+          <IconBrandMessenger className="size-10 text-primary" />
         </div>
         <div className="space-y-1">
           <h2 className="text-xl font-semibold">Connect Messenger</h2>
@@ -176,8 +176,8 @@ export function MessengerConnection() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
-        <div className="flex size-10 items-center justify-center rounded-full bg-[#0084FF]/10">
-          <IconBrandMessenger className="size-5 text-[#0084FF]" />
+        <div className="flex size-10 items-center justify-center rounded-full bg-primary/10">
+          <IconBrandMessenger className="size-5 text-primary" />
         </div>
         <div>
           <h2 className="font-semibold">Messenger Pages</h2>

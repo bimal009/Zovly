@@ -37,3 +37,19 @@ export type InstagramConnectionStatus = {
   connected: boolean;
   account: ConnectedPage | null;
 };
+
+export type BusinessAppConnections = {
+  id: string;
+  business_id: string;
+  instagram: boolean;
+  facebook: boolean;
+  tiktok: boolean;
+  whatsapp: boolean;
+  google_workspace: boolean;
+  stripe_connect: boolean;
+  fonepay: boolean;
+  khalti: boolean;
+  esewa: boolean;
+  created_at: string;
+  updated_at: string;
+};

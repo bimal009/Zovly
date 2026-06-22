@@ -43,8 +43,8 @@ function PageCard({ page }: { page: ConnectedPage }) {
               className="size-12 shrink-0 rounded-full object-cover"
             />
           ) : (
-            <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-[#1877F2]/10">
-              <IconBrandFacebook className="size-6 text-[#1877F2]" />
+            <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-primary/10">
+              <IconBrandFacebook className="size-6 text-primary" />
             </div>
           )}
 
@@ -52,7 +52,7 @@ function PageCard({ page }: { page: ConnectedPage }) {
             <div className="flex items-center gap-2">
               <p className="truncate font-semibold">{name}</p>
               {page.is_active ? (
-                <Badge variant="secondary" className="shrink-0 text-green-600">
+                <Badge variant="secondary" className="text-success shrink-0">
                   Active
                 </Badge>
               ) : (
@@ -155,8 +155,8 @@ export function FacebookConnection() {
   if (!status?.connected) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-5 py-24 text-center">
-        <div className="flex size-20 items-center justify-center rounded-full bg-[#1877F2]/10">
-          <IconBrandFacebook className="size-10 text-[#1877F2]" />
+        <div className="flex size-20 items-center justify-center rounded-full bg-primary/10">
+          <IconBrandFacebook className="size-10 text-primary" />
         </div>
         <div className="space-y-1">
           <h2 className="text-xl font-semibold">Connect Facebook</h2>
@@ -180,8 +180,8 @@ export function FacebookConnection() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
-        <div className="flex size-10 items-center justify-center rounded-full bg-[#1877F2]/10">
-          <IconBrandFacebook className="size-5 text-[#1877F2]" />
+        <div className="flex size-10 items-center justify-center rounded-full bg-primary/10">
+          <IconBrandFacebook className="size-5 text-primary" />
         </div>
         <div>
           <h2 className="font-semibold">Facebook Pages</h2>

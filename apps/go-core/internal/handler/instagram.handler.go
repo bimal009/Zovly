@@ -288,7 +288,7 @@ func (h *InstagramHandler) Webhook(c *gin.Context) {
 	// signs its webhooks with IG_APP_SECRET — distinct from the Facebook app's
 	// META_APP_SECRET.
 	sig := c.GetHeader("X-Hub-Signature-256")
-	if !verifyMetaSignature(body, sig, h.cfg.Instagram.AppSecret) {
+	if !verifyMetaSignature(body, sig, h.cfg.Meta.AppSecret) {
 		h.log.Warn("instagram webhook signature mismatch")
 		c.Status(http.StatusUnauthorized)
 		return

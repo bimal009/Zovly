@@ -1,7 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
+import { useParams } from "next/navigation";
 import {
+  IconAlertTriangle,
   IconBolt,
   IconBrandFacebook,
   IconBrandInstagram,
@@ -19,6 +22,7 @@ import { Button } from "@repo/ui/components/ui/button";
 import { Skeleton } from "@repo/ui/components/ui/skeleton";
 import {
   useActivateInstagram,
+  useBusinessAppConnections,
   useInstagramConnectionStatus,
   useSubscribeInstagramWebhook,
 } from "../client/connections";
@@ -61,23 +65,21 @@ function MessagingSection({
   // Active + already subscribed — messaging is live.
   if (isSubscribed) {
     return (
-      <div className="flex items-start gap-3 rounded-lg border border-green-200 bg-green-50 p-4 dark:border-green-900/40 dark:bg-green-950/20">
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/40">
-          <IconCheck className="size-5 text-green-600 dark:text-green-400" />
+      <div className="border-success/30 bg-success/10 flex items-start gap-3 rounded-lg border p-4">
+        <div className="bg-success/15 flex size-9 shrink-0 items-center justify-center rounded-full">
+          <IconCheck className="text-success size-5" />
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="font-semibold text-green-900 dark:text-green-100">
-              Messaging active
-            </p>
+            <p className="font-semibold">Messaging active</p>
             <Badge
               variant="secondary"
-              className="shrink-0 bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300"
+              className="bg-success/15 text-success shrink-0"
             >
               Receiving DMs
             </Badge>
           </div>
-          <p className="text-sm text-green-800/80 dark:text-green-200/70">
+          <p className="text-muted-foreground text-sm">
             Direct messages are delivered to your inbox
             {subscribedAt ? ` since ${subscribedAt}` : ""}.
           </p>
@@ -90,15 +92,15 @@ function MessagingSection({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-start gap-3">
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/40">
-          <IconMessage className="size-5 text-amber-600 dark:text-amber-400" />
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-warning/15">
+          <IconMessage className="text-warning size-5" />
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <p className="font-semibold">Enable messaging</p>
             <Badge
               variant="outline"
-              className="shrink-0 border-amber-300 text-amber-700 dark:border-amber-800 dark:text-amber-300"
+              className="border-warning/40 text-warning shrink-0"
             >
               Action needed
             </Badge>
@@ -111,16 +113,16 @@ function MessagingSection({
 
       {/* Facebook Page requirement — Instagram only delivers DMs when the
           professional account is linked to a Facebook Page. */}
-      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3.5 dark:border-amber-900/40 dark:bg-amber-950/20">
+      <div className="rounded-lg border border-warning/30 bg-warning/10 p-3.5">
         <div className="flex items-center gap-2">
-          <IconBrandFacebook className="size-4 shrink-0 text-[#1877F2]" />
+          <IconBrandFacebook className="size-4 shrink-0 text-primary" />
           <IconLink className="text-muted-foreground size-3.5 shrink-0" />
-          <IconBrandInstagram className="size-4 shrink-0 text-[#E1306C]" />
-          <p className="text-sm font-medium text-amber-900 dark:text-amber-100">
+          <IconBrandInstagram className="size-4 shrink-0 text-primary" />
+          <p className="text-sm font-medium">
             Link your Facebook Page first
           </p>
         </div>
-        <p className="mt-1.5 text-sm leading-relaxed text-amber-800/90 dark:text-amber-200/80">
+        <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
           Connect your Facebook Page with your Instagram professional account to
           use messaging. Without that link, Instagram won&apos;t deliver DMs and
           the AI can&apos;t reply.
@@ -129,15 +131,15 @@ function MessagingSection({
 
       <ul className="flex flex-col gap-2 text-sm">
         <li className="flex items-center gap-2">
-          <IconMessage className="size-4 shrink-0 text-[#E1306C]" />
+          <IconMessage className="size-4 shrink-0 text-primary" />
           <span>Receive customer DMs in your unified inbox</span>
         </li>
         <li className="flex items-center gap-2">
-          <IconSparkles className="size-4 shrink-0 text-[#E1306C]" />
+          <IconSparkles className="size-4 shrink-0 text-primary" />
           <span>Let the AI auto-reply and qualify leads</span>
         </li>
         <li className="flex items-center gap-2">
-          <IconBolt className="size-4 shrink-0 text-[#E1306C]" />
+          <IconBolt className="size-4 shrink-0 text-primary" />
           <span>Capture every conversation in real time</span>
         </li>
       </ul>
@@ -145,7 +147,7 @@ function MessagingSection({
       <Button
         onClick={() => subscribe.mutate()}
         disabled={subscribe.isPending}
-        className="cursor-pointer bg-[#E1306C] hover:bg-[#E1306C]/90"
+        className="cursor-pointer"
       >
         {subscribe.isPending ? (
           <IconLoader2 className="size-4 animate-spin" />
@@ -176,9 +178,9 @@ function AccountCard({ account }: { account: ConnectedPage }) {
   return (
     <div className="flex max-w-xl flex-col gap-5 rounded-xl border p-5">
       <div className="flex items-start gap-4">
-        <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#833AB4] via-[#FD1D1D] to-[#FCAF45] p-[2px]">
+        <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-primary p-[2px]">
           <div className="bg-background flex size-full items-center justify-center rounded-full">
-            <IconBrandInstagram className="size-6 text-[#E1306C]" />
+            <IconBrandInstagram className="size-6 text-primary" />
           </div>
         </div>
 
@@ -186,7 +188,7 @@ function AccountCard({ account }: { account: ConnectedPage }) {
           <div className="flex items-center gap-2">
             <p className="truncate font-semibold">{name}</p>
             {isActive ? (
-              <Badge variant="secondary" className="shrink-0 text-green-600">
+              <Badge variant="secondary" className="text-success shrink-0">
                 Active
               </Badge>
             ) : (
@@ -226,16 +228,16 @@ function AccountCard({ account }: { account: ConnectedPage }) {
       {/* Activation gate — the credential is stored inactive after OAuth, so the
           user must explicitly connect it with the app before it does anything. */}
       {!isActive && (
-        <div className="flex flex-col gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/40 dark:bg-amber-950/20">
+        <div className="flex flex-col gap-3 rounded-lg border border-warning/30 bg-warning/10 p-4">
           <div className="flex items-start gap-3">
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/40">
-              <IconBolt className="size-5 text-amber-600 dark:text-amber-400" />
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-warning/15">
+              <IconBolt className="text-warning size-5" />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="font-semibold text-amber-900 dark:text-amber-100">
+              <p className="font-semibold">
                 Finish connecting
               </p>
-              <p className="text-sm text-amber-800/90 dark:text-amber-200/80">
+              <p className="text-sm text-muted-foreground">
                 Your account is linked but not active yet. Connect it with the
                 app to start using it.
               </p>
@@ -244,7 +246,7 @@ function AccountCard({ account }: { account: ConnectedPage }) {
           <Button
             onClick={() => activate.mutate()}
             disabled={activate.isPending}
-            className="cursor-pointer bg-[#E1306C] hover:bg-[#E1306C]/90"
+            className="cursor-pointer"
           >
             {activate.isPending ? (
               <IconLoader2 className="size-4 animate-spin" />
@@ -264,10 +266,13 @@ function AccountCard({ account }: { account: ConnectedPage }) {
 }
 
 export function InstagramConnection() {
+  const params = useParams<{ id: string }>();
   const { data, isLoading } = useInstagramConnectionStatus();
+  const { data: apps, isLoading: appsLoading } = useBusinessAppConnections();
   const [connecting, setConnecting] = useState(false);
 
   const status = data?.data;
+  const facebookConnected = !!apps?.data?.facebook;
 
   async function handleConnect() {
     setConnecting(true);
@@ -279,7 +284,7 @@ export function InstagramConnection() {
     }
   }
 
-  if (isLoading) {
+  if (isLoading || appsLoading) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-4 py-24">
         <Skeleton className="size-16 rounded-full" />
@@ -293,8 +298,8 @@ export function InstagramConnection() {
   if (!status?.connected) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-5 py-24 text-center">
-        <div className="flex size-20 items-center justify-center rounded-full bg-gradient-to-br from-[#833AB4]/10 via-[#FD1D1D]/10 to-[#FCAF45]/10">
-          <IconBrandInstagram className="size-10 text-[#E1306C]" />
+        <div className="flex size-20 items-center justify-center rounded-full bg-primary/10">
+          <IconBrandInstagram className="size-10 text-primary" />
         </div>
         <div className="space-y-1">
           <h2 className="text-xl font-semibold">Connect Instagram</h2>
@@ -303,10 +308,40 @@ export function InstagramConnection() {
             comments, and reply to messages from one place.
           </p>
         </div>
+
+        {/* Facebook is a hard prerequisite — Instagram only delivers DMs and
+            comment events when the professional account is linked to a Facebook
+            Page, so we block connecting until Facebook is set up. */}
+        {!facebookConnected && (
+          <div className="max-w-md rounded-lg border border-warning/30 bg-warning/10 p-3.5 text-left">
+            <div className="flex items-center gap-2">
+              <IconAlertTriangle className="text-warning size-4 shrink-0" />
+              <p className="text-sm font-medium">
+                Connect a Facebook Page first
+              </p>
+            </div>
+            <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
+              Without linking your Instagram to a Facebook Page, you won&apos;t be
+              able to manage messages, comments, and replies with AI.
+            </p>
+            <Button
+              asChild
+              variant="outline"
+              size="sm"
+              className="border-warning/40 text-warning hover:bg-warning/10 mt-3"
+            >
+              <Link href={`/${params.id}/connections/facebook`}>
+                <IconBrandFacebook className="size-4 text-primary" />
+                Connect Facebook
+              </Link>
+            </Button>
+          </div>
+        )}
+
         <Button
           size="lg"
           onClick={handleConnect}
-          disabled={connecting}
+          disabled={connecting || !facebookConnected}
           className="cursor-pointer"
         >
           {connecting ? (
@@ -323,8 +358,8 @@ export function InstagramConnection() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
-        <div className="flex size-10 items-center justify-center rounded-full bg-gradient-to-br from-[#833AB4]/10 via-[#FD1D1D]/10 to-[#FCAF45]/10">
-          <IconBrandInstagram className="size-5 text-[#E1306C]" />
+        <div className="flex size-10 items-center justify-center rounded-full bg-primary/10">
+          <IconBrandInstagram className="size-5 text-primary" />
         </div>
         <div>
           <h2 className="font-semibold">Instagram Account</h2>

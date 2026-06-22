@@ -17,6 +17,7 @@ func RegisterAll(
 	facebookHandler *handler.FacebookHandler,
 	instagramHandler *handler.InstagramHandler,
 	inboxHandler *handler.InboxHandler,
+	appHandler *handler.AppHandler,
 	authMiddleware gin.HandlerFunc,
 	businessMiddleware gin.HandlerFunc,
 
@@ -93,6 +94,7 @@ func RegisterAll(
 	connections := api.Group("/connections")
 	connections.Use(authMiddleware, businessMiddleware)
 	{
+		connections.GET("/apps", appHandler.GetConnections)
 		connections.GET("/facebook", facebookHandler.GetConnectionStatus)
 		connections.GET("/instagram", instagramHandler.GetConnectionStatus)
 

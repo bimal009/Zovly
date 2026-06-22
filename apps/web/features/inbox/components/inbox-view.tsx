@@ -122,7 +122,7 @@ function Avatar({
 
   return (
     <div
-      className={`${dim} rounded-full bg-gradient-to-br from-violet-500 to-blue-500 flex items-center justify-center font-semibold text-white flex-shrink-0`}
+      className={`${dim} bg-primary text-primary-foreground flex flex-shrink-0 items-center justify-center rounded-full font-semibold`}
     >
       {initials}
     </div>
@@ -270,13 +270,15 @@ function MessageBubble({ msg }: { msg: Message }) {
           <div className="flex items-center gap-1 px-1">
             {msg.sent_by === "ai" ? (
               <>
-                <IconRobot size={11} className="text-violet-500" />
-                <span className="text-[10px] text-violet-500 font-medium">AI</span>
+                <IconRobot size={11} className="text-primary" />
+                <span className="text-primary text-[10px] font-medium">AI</span>
               </>
             ) : (
               <>
-                <IconUser size={11} className="text-blue-500" />
-                <span className="text-[10px] text-blue-500 font-medium">You</span>
+                <IconUser size={11} className="text-muted-foreground" />
+                <span className="text-muted-foreground text-[10px] font-medium">
+                  You
+                </span>
               </>
             )}
           </div>

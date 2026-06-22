@@ -27,7 +27,7 @@ export default function RootLayout({
         <NuqsAdapter>
           <QueryProviders>{children}</QueryProviders>
         </NuqsAdapter>
-        <Toaster richColors position="top-right" />
+        <Toaster position="top-right" />
       </body>
     </html>
   );

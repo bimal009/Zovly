@@ -1,6 +1,17 @@
 import { axiosInstance } from "@/lib/axios";
 import { ApiResponse } from "@/lib/types/apiResponse";
-import { FacebookConnectionStatus, InstagramConnectionStatus } from "../types/connections";
+import {
+  BusinessAppConnections,
+  FacebookConnectionStatus,
+  InstagramConnectionStatus,
+} from "../types/connections";
+
+export const getBusinessAppConnections = async () => {
+  const res = await axiosInstance.get<ApiResponse<BusinessAppConnections>>(
+    "/api/v1/connections/apps",
+  );
+  return res.data;
+};
 
 export const getFacebookConnectionStatus = async () => {
   const res = await axiosInstance.get<ApiResponse<FacebookConnectionStatus>>(

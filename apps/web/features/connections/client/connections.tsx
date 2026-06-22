@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "@repo/ui/components/ui/sonner";
 import {
   activateInstagram,
+  getBusinessAppConnections,
   getFacebookConnectionStatus,
   getInstagramConnectionStatus,
   subscribeInstagramWebhook,
@@ -12,6 +13,13 @@ import {
 } from "../api/connections";
 
 export const CONNECTIONS_KEY = ["connections"] as const;
+
+export const useBusinessAppConnections = () => {
+  return useQuery({
+    queryKey: [...CONNECTIONS_KEY, "apps"],
+    queryFn: getBusinessAppConnections,
+  });
+};
 
 // Pulls a human-readable message out of an axios/API error, falling back to a default.
 function errMessage(error: unknown, fallback: string): string {
@@ -32,9 +40,7 @@ export const useToggleFacebookPage = () => {
   return useMutation({
     mutationFn: (pageId: string) => toggleFacebookPage(pageId),
     onSuccess: (res) => {
-      toast.success(
-        res.data?.is_active ? "Page enabled" : "Page disabled",
-      );
+      toast.success(res.message);
       qc.invalidateQueries({ queryKey: [...CONNECTIONS_KEY, "facebook"] });
     },
     onError: (error) =>
@@ -60,8 +66,8 @@ export const useSubscribeMessengerPage = () => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (pageId: string) => subscribeMessengerPage(pageId),
-    onSuccess: () => {
-      toast.success("Messenger enabled — you'll now receive messages");
+    onSuccess: (res) => {
+      toast.success(res.message);
       qc.invalidateQueries({ queryKey: [...CONNECTIONS_KEY, "facebook"] });
     },
     onError: (error) =>
@@ -73,8 +79,8 @@ export const useActivateInstagram = () => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: activateInstagram,
-    onSuccess: () => {
-      toast.success("Instagram account activated");
+    onSuccess: (res) => {
+      toast.success(res.message);
       qc.invalidateQueries({ queryKey: [...CONNECTIONS_KEY, "instagram"] });
     },
     onError: (error) =>
@@ -86,8 +92,8 @@ export const useSubscribeInstagramWebhook = () => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: subscribeInstagramWebhook,
-    onSuccess: () => {
-      toast.success("Instagram messaging enabled — you'll now receive DMs");
+    onSuccess: (res) => {
+      toast.success(res.message);
       qc.invalidateQueries({ queryKey: [...CONNECTIONS_KEY, "instagram"] });
     },
     onError: (error) =>

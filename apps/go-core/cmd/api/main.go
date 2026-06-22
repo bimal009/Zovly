@@ -65,6 +65,7 @@ func main() {
 
 	planService := service.NewPlanService(db, rdb, slog, planRepo)
 	businessService := service.NewBusinessService(db, businessRepo, businessMemberRepo, userRepo, slog, appRepo)
+	appService := service.NewAppService(appRepo, slog)
 	productService := service.NewProductService(db, rdb, slog, productRepo)
 	serviceService := service.NewServiceService(db, rdb, slog, serviceRepo)
 	faqService := service.NewFaqService(faqRepo, knowledgeRepo, slog, db, *cfg)
@@ -83,6 +84,7 @@ func main() {
 	facebookHandler := handler.NewFacebookHandler(facebookService, chatService, rdb, cfg, slog)
 	instagramHandler := handler.NewInstagramHandler(rdb, cfg, slog, instagramService)
 	inboxHandler := handler.NewInboxHandler(conversationRepo, messageRepo)
+	appHandler := handler.NewAppHandler(appService, slog)
 
 	authMiddleware := middlewares.RequireAuth(sessionRepo)
 	businessMiddleware := middlewares.RequireBusiness(businessService, memberInviteRepo)
@@ -104,7 +106,7 @@ func main() {
 	r.Use(limiter.LimitMiddleWare())
 
 	api := r.Group("/api/v1")
-	routes.RegisterAll(api, planHandler, paddleHandler, imageHandler, businessHandler, productHandler, serviceHandler, faqHandler, facebookHandler, instagramHandler, inboxHandler, authMiddleware, businessMiddleware)
+	routes.RegisterAll(api, planHandler, paddleHandler, imageHandler, businessHandler, productHandler, serviceHandler, faqHandler, facebookHandler, instagramHandler, inboxHandler, appHandler, authMiddleware, businessMiddleware)
 	httpServer := &http.Server{
 		Addr:         ":" + cfg.App.Port,
 		Handler:      r,

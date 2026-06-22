@@ -177,7 +177,7 @@ export function FaqFormDialog({
                   )}
                   <span className={cn(
                     "text-xs tabular-nums",
-                    answerLength > ANSWER_MAX ? "text-destructive" : answerLength > ANSWER_MAX * 0.85 ? "text-amber-500" : "text-muted-foreground",
+                    answerLength > ANSWER_MAX ? "text-destructive" : answerLength > ANSWER_MAX * 0.85 ? "text-warning" : "text-muted-foreground",
                   )}>
                     {answerLength}/{ANSWER_MAX}
                   </span>

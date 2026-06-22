@@ -125,10 +125,10 @@ export function getProductColumns({
         return (
           <div className="flex items-center gap-1.5">
             {isLow && (
-              <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-yellow-500" />
+              <AlertTriangle className="text-warning h-3.5 w-3.5 shrink-0" />
             )}
             <span
-              className={`text-sm tabular-nums ${isLow ? "font-semibold text-yellow-600" : ""}`}
+              className={`text-sm tabular-nums ${isLow ? "text-warning font-semibold" : ""}`}
             >
               {p.stock_qty} units
             </span>

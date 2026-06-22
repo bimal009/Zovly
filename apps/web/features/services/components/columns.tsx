@@ -31,23 +31,19 @@ export const TYPE_CONFIG: Record<
 > = {
   appointment: {
     label: "Appointment",
-    className:
-      "bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800",
+    className: "bg-primary/10 text-primary border-primary/20",
   },
   class: {
     label: "Class",
-    className:
-      "bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800",
+    className: "bg-secondary text-secondary-foreground border-border",
   },
   membership: {
     label: "Membership",
-    className:
-      "bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-950 dark:text-orange-300 dark:border-orange-800",
+    className: "bg-warning/10 text-warning border-warning/20",
   },
   package: {
     label: "Package",
-    className:
-      "bg-green-100 text-green-700 border-green-200 dark:bg-green-950 dark:text-green-300 dark:border-green-800",
+    className: "bg-success/10 text-success border-success/20",
   },
 };
 

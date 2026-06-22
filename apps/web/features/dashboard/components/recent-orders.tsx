@@ -115,9 +115,9 @@ const statusVariant: Record<
 };
 
 const platformColor: Record<Platform, string> = {
-  Instagram: "text-pink-600",
-  WhatsApp: "text-green-600",
-  Facebook: "text-blue-600",
+  Instagram: "text-primary",
+  WhatsApp: "text-success",
+  Facebook: "text-primary",
   TikTok: "text-foreground",
 };
 
@@ -158,9 +158,9 @@ const columns: ColumnDef<Lead>[] = [
       const score = row.original.score;
       const color =
         score >= 80
-          ? "text-green-600"
+          ? "text-success"
           : score >= 60
-            ? "text-yellow-600"
+            ? "text-warning"
             : "text-muted-foreground";
       return (
         <span className={`text-sm font-semibold tabular-nums ${color}`}>
