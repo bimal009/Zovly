@@ -106,6 +106,7 @@ func RegisterAll(
 			messengerPages.POST("/:pageId/subscribe", facebookHandler.SubscribeMessengerWebhook)
 		}
 
+		connections.POST("/instagram/activate", instagramHandler.ActivateInstagram)
 		connections.POST("/instagram/subscribe", instagramHandler.SubscribeWebhook)
 	}
 }

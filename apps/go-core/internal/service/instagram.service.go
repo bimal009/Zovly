@@ -29,6 +29,7 @@ type InstagramConnectionStatus struct {
 type InstagramService interface {
 	SaveConnection(ctx context.Context, businessID, igUserID, igUsername string, token *models.IgLongLivedResponse) error
 	GetConnectionStatus(ctx context.Context, businessID string) (*InstagramConnectionStatus, error)
+	ActivateConnection(ctx context.Context, businessID string) error
 	RefreshToken(ctx context.Context, accessToken string) (*models.IgLongLivedResponse, error)
 	RefreshExpiringTokens(ctx context.Context) error
 	FetchUserProfile(ctx context.Context, accessToken string) (*models.InstagramUser, error)
@@ -90,6 +91,16 @@ func (s *instagramService) GetConnectionStatus(ctx context.Context, businessID s
 	return &InstagramConnectionStatus{Connected: true, Account: account}, nil
 }
 
+// ActivateConnection flips the business's Instagram credential to active. The
+// OAuth callback stores it inactive, so this is what the "Connect with app"
+// button triggers before messaging can be enabled.
+func (s *instagramService) ActivateConnection(ctx context.Context, businessID string) error {
+	if err := s.appCredentialRepo.SetActiveByApp(ctx, businessID, "instagram", true); err != nil {
+		return fmt.Errorf("activate instagram connection: %w", err)
+	}
+	return nil
+}
+
 func (s *instagramService) SaveConnection(ctx context.Context, businessID, igUserID, igUsername string, token *models.IgLongLivedResponse) error {
 	key, err := base64.StdEncoding.DecodeString(s.cfg.App.EncryptionKey)
 	if err != nil || len(key) != 32 {
@@ -118,7 +129,9 @@ func (s *instagramService) SaveConnection(ctx context.Context, businessID, igUse
 		PlatformAccountID:   &igUserID,
 		PlatformAccountName: &igUsername,
 		Scopes:              pq.StringArray{"instagram_business_basic", "instagram_business_content_publish", "instagram_business_manage_comments", "instagram_business_manage_messages"},
-		IsActive:            true,
+		// Stored inactive on connect — the user must explicitly click "Connect with
+		// app" in the UI to activate the credential (ActivateConnection).
+		IsActive:            false,
 		ConnectedAt:         &now,
 	}
 
@@ -307,22 +320,28 @@ func (s *instagramService) HandleInstagramInboundMessage(ctx context.Context, pl
 		return fmt.Errorf("decrypt access token: %w", err)
 	}
 
-	// TEMP DEBUG — prints a live access token in plaintext so the profile API
-	// can be curled manually. REMOVE before production.
-	s.log.Warn("DEBUG instagram profile curl",
-		"sender_id", event.Sender.ID,
-		"access_token", instagramToken,
-		"curl", fmt.Sprintf(
-			"curl -s \"https://graph.instagram.com/v25.0/%s?fields=name,username,profile_pic,follower_count,is_user_follow_business,is_business_follow_user&access_token=%s\"",
-			event.Sender.ID, instagramToken,
-		),
-	)
-
-	senderProfile, err := s.fetchSenderProfile(ctx, event.Sender.ID, instagramToken)
-	if err != nil {
-		s.log.Warn("fetch sender profile failed, using fallback", "sender_id", event.Sender.ID, "err", err)
-		senderProfile = &models.InstagramUser{}
+	// Resolve the sender's profile. Prefer the Facebook Page token + Graph API —
+	// the Instagram-Login User Profile API frequently returns 200 with name/
+	// username withheld. Falls back to the IG token if no page is connected or
+	// Graph returns nothing. (The connect flow now forces a Facebook Page link.)
+	senderProfile := &models.InstagramUser{}
+	if pageToken, perr := s.getFacebookPageToken(ctx, cred.BusinessID); perr != nil {
+		s.log.Warn("no facebook page token for ig profile lookup", "business_id", cred.BusinessID, "err", perr)
+	} else if profile, gerr := s.fetchSenderProfileViaGraph(ctx, event.Sender.ID, pageToken); gerr != nil {
+		s.log.Warn("graph sender profile fetch failed", "sender_id", event.Sender.ID, "err", gerr)
+	} else {
+		senderProfile = profile
 	}
+
+	// Fallback to the Instagram-Login profile API when Graph yielded nothing.
+	if senderProfile.Name == "" && senderProfile.Username == "" {
+		if profile, ferr := s.fetchSenderProfile(ctx, event.Sender.ID, instagramToken); ferr != nil {
+			s.log.Warn("fetch sender profile failed, using fallback", "sender_id", event.Sender.ID, "err", ferr)
+		} else {
+			senderProfile = profile
+		}
+	}
+
 	s.log.Info("sender profile fetched",
 		"sender_id", event.Sender.ID,
 		"name", senderProfile.Name,
@@ -412,6 +431,92 @@ func (s *instagramService) HandleInstagramInboundMessage(ctx context.Context, pl
 	return tx.Commit()
 }
 
+// getFacebookPageToken returns a decrypted Facebook Page access token for the
+// business, preferring an active page. Instagram sender profiles are fetched
+// through the Facebook Graph API with this token because it's far more reliable
+// than the Instagram-Login User Profile API.
+func (s *instagramService) getFacebookPageToken(ctx context.Context, businessID string) (string, error) {
+	creds, err := s.appCredentialRepo.ListByApp(ctx, businessID, "facebook")
+	if err != nil {
+		return "", fmt.Errorf("list facebook credentials: %w", err)
+	}
+
+	// Prefer an active page; otherwise fall back to the first page that has a token.
+	var chosen *models.AppCredential
+	for i := range creds {
+		if creds[i].AccessToken == nil {
+			continue
+		}
+		if creds[i].IsActive {
+			chosen = &creds[i]
+			break
+		}
+		if chosen == nil {
+			chosen = &creds[i]
+		}
+	}
+	if chosen == nil {
+		return "", fmt.Errorf("no facebook page with access token for business %s", businessID)
+	}
+
+	key, err := base64.StdEncoding.DecodeString(s.cfg.App.EncryptionKey)
+	if err != nil || len(key) != 32 {
+		return "", fmt.Errorf("invalid encryption key configuration")
+	}
+	token, err := utils.Decrypt(*chosen.AccessToken, key)
+	if err != nil {
+		return "", fmt.Errorf("decrypt facebook page token: %w", err)
+	}
+	return token, nil
+}
+
+// fetchSenderProfileViaGraph fetches an Instagram sender's profile through the
+// Facebook Graph API using a Page access token. Requires the IG account to be
+// linked to a Facebook Page; returns the name/username/avatar that the
+// Instagram-Login profile API often withholds.
+func (s *instagramService) fetchSenderProfileViaGraph(ctx context.Context, senderID, pageToken string) (*models.InstagramUser, error) {
+	params := url.Values{
+		"fields":       {"name,username,profile_pic,follower_count"},
+		"access_token": {pageToken},
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		fmt.Sprintf("https://graph.facebook.com/v25.0/%s?%s", senderID, params.Encode()), nil)
+	if err != nil {
+		return nil, fmt.Errorf("build graph sender profile request: %w", err)
+	}
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("call graph sender profile endpoint: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read graph sender profile response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("graph sender profile fetch failed (%d): %s", resp.StatusCode, body)
+	}
+
+	var result struct {
+		ID            string `json:"id"`
+		Name          string `json:"name"`
+		Username      string `json:"username"`
+		ProfilePic    string `json:"profile_pic"`
+		FollowerCount int    `json:"follower_count"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("decode graph sender profile: %w", err)
+	}
+	return &models.InstagramUser{
+		ID:         result.ID,
+		Name:       result.Name,
+		Username:   result.Username,
+		ProfilePic: result.ProfilePic,
+	}, nil
+}
+
 func (s *instagramService) fetchSenderProfile(ctx context.Context, senderID, accessToken string) (*models.InstagramUser, error) {
 	// The Instagram messaging User Profile API exposes the avatar under
 	// "profile_pic" — "profile_picture_url" is only valid on the business's
@@ -436,9 +541,6 @@ func (s *instagramService) fetchSenderProfile(ctx context.Context, senderID, acc
 	if err != nil {
 		return nil, fmt.Errorf("read sender profile response: %w", err)
 	}
-
-	// TEMP DEBUG — dump the raw profile API response. REMOVE after diagnosing.
-	s.log.Info("DEBUG sender profile raw", "sender_id", senderID, "status", resp.StatusCode, "raw", string(body))
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("sender profile fetch failed (%d): %s", resp.StatusCode, body)

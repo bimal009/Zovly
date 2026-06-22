@@ -12,6 +12,7 @@ import (
 type AppCredentialRepo interface {
 	Upsert(ctx context.Context, tx *sqlx.Tx, cred models.CreateAppCredential) error
 	TogglePageActive(ctx context.Context, tx *sqlx.Tx, businessID, platformAccountID string) (bool, error)
+	SetActiveByApp(ctx context.Context, businessID, appName string, active bool) error
 	HasActiveByApp(ctx context.Context, businessID, appName string) (bool, error)
 	GetExpiringInstaTokens(ctx context.Context) ([]models.AppCredential, error)
 	UpdateToken(ctx context.Context, id, encToken string, expiresAt time.Time) error
@@ -81,6 +82,21 @@ func (r *appCredentialRepo) TogglePageActive(ctx context.Context, tx *sqlx.Tx, b
 		return false, fmt.Errorf("toggle page active: %w", err)
 	}
 	return newState, nil
+}
+
+// SetActiveByApp flips is_active for every credential a business holds under the
+// given app. Instagram has a single account per business, so a simple app-scoped
+// update is enough — unlike Facebook, which toggles individual pages by id.
+func (r *appCredentialRepo) SetActiveByApp(ctx context.Context, businessID, appName string, active bool) error {
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE app_credentials
+		SET is_active = $3, updated_at = now()
+		WHERE business_id = $1 AND app_name = $2
+	`, businessID, appName, active)
+	if err != nil {
+		return fmt.Errorf("set active by app: %w", err)
+	}
+	return nil
 }
 
 func (r *appCredentialRepo) GetExpiringInstaTokens(ctx context.Context) ([]models.AppCredential, error) {

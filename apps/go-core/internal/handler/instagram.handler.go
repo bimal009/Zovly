@@ -219,6 +219,26 @@ func (h *InstagramHandler) GetConnectionStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, responses.Success("instagram connection status", status))
 }
 
+// ActivateInstagram flips the connected (but inactive) Instagram credential to
+// active. The OAuth callback stores it inactive on purpose, so the user must
+// explicitly click "Connect with app" in the UI before messaging can be enabled.
+func (h *InstagramHandler) ActivateInstagram(c *gin.Context) {
+	businessID, ok := businessIDFromCtx(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, responses.Unauthorized("unauthorized"))
+		return
+	}
+
+	if err := h.instagramService.ActivateConnection(c.Request.Context(), businessID); err != nil {
+		h.log.Error("failed to activate instagram connection", "business_id", businessID, "error", err)
+		c.JSON(http.StatusInternalServerError, responses.InternalServerError("failed to activate instagram connection"))
+		return
+	}
+
+	h.log.Info("instagram connection activated", "business_id", businessID)
+	c.JSON(http.StatusOK, responses.Success("instagram activated", gin.H{"is_active": true}))
+}
+
 // SubscribeWebhook subscribes the connected Instagram account to messaging
 // webhook fields and stamps webhook_subscribed_at. Mirrors the Facebook
 // messenger subscribe endpoint.
@@ -268,7 +288,7 @@ func (h *InstagramHandler) Webhook(c *gin.Context) {
 	// signs its webhooks with IG_APP_SECRET — distinct from the Facebook app's
 	// META_APP_SECRET.
 	sig := c.GetHeader("X-Hub-Signature-256")
-	if !verifyMetaSignature(body, sig, h.cfg.Meta.AppSecret) {
+	if !verifyMetaSignature(body, sig, h.cfg.Instagram.AppSecret) {
 		h.log.Warn("instagram webhook signature mismatch")
 		c.Status(http.StatusUnauthorized)
 		return

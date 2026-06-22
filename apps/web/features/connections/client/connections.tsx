@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "@repo/ui/components/ui/sonner";
 import {
+  activateInstagram,
   getFacebookConnectionStatus,
   getInstagramConnectionStatus,
   subscribeInstagramWebhook,
@@ -65,6 +66,19 @@ export const useSubscribeMessengerPage = () => {
     },
     onError: (error) =>
       toast.error(errMessage(error, "Failed to enable Messenger")),
+  });
+};
+
+export const useActivateInstagram = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: activateInstagram,
+    onSuccess: () => {
+      toast.success("Instagram account activated");
+      qc.invalidateQueries({ queryKey: [...CONNECTIONS_KEY, "instagram"] });
+    },
+    onError: (error) =>
+      toast.error(errMessage(error, "Failed to activate Instagram account")),
   });
 };
 
