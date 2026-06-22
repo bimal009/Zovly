@@ -51,18 +51,13 @@ business type and activate only the relevant modules.
                                   └──────────────┘
 ```
 
-### A note on internal transport — FastAPI, not gRPC
+### Internal AI service
 
-The original architecture spec (`SocialOS-Architecture-v3-grpc.pdf`) proposed gRPC over
-TCP between `go-core` and the Python ML service. **This project currently uses plain
-HTTP/JSON (FastAPI) instead.**
+`go-core` talks to the Python AI service over plain HTTP/JSON:
 
-- `go-core` calls the AI service over HTTP at `AI_SERVICE_URL` (default `http://localhost:8000`).
+- `go-core` calls the AI service at `AI_SERVICE_URL` (default `http://localhost:8000`).
 - The FastAPI app mounts everything under `/api/v1/ml` (e.g. `/api/v1/ml/chat/reply`,
   `/api/v1/ml/embed/faq`).
-- This keeps the build simple — no `.proto` files, no codegen step, no stub
-  regeneration on every change. gRPC remains a possible future migration once
-  type-safe contracts or streaming transcription become worth the added build friction.
 
 ---
 
@@ -120,10 +115,10 @@ apps/ai/
 
 ## Core feature modules
 
-- **Content Hub** — upload one video → auto-post to TikTok, Instagram, YouTube, Facebook with AI captions + hashtags per platform.
+- **Content Hub** — upload one video → auto-post to TikTok, Instagram, Facebook with AI captions + hashtags per platform.
 - **Analytics Engine** — cross-platform performance in one view, with AI insights and ad-budget suggestions.
 - **AI Lead Gen** — auto-reply to DMs, comment monitoring → lead capture, AI follow-up sequences.
-- **AI Ad Manager** — connect Meta + TikTok + Google Ads; AI suggests what to boost and optimizes campaigns.
+- **AI Ad Manager** — connect Meta Ads; AI suggests what to boost and optimizes campaigns.
 - **Integrations** — Google Workspace, Paddle payments, WhatsApp Business, and all major social platforms.
 
 Onboarding detects the business type — **Product Seller**, **Service Business**, or
@@ -162,114 +157,6 @@ on the next poll. (WebSockets are a possible future upgrade for lower-latency pu
 
 ---
 
-## Getting started
-
-### Prerequisites
-
-- Node.js ≥ 18 and **pnpm** 9
-- Go (see `apps/go-core/go.mod` for the toolchain version)
-- Python ≥ 3.11 and [**uv**](https://docs.astral.sh/uv/)
-- Docker (for Redis) and a Neon/Postgres database with the `vector` extension
-
-### 1. Install workspace deps
-
-```sh
-pnpm install
-```
-
-### 2. Redis
-
-This project uses **Upstash** (serverless Redis) — point `REDIS_URL` at your Upstash
-database (TLS, `rediss://`). For fully-local dev you can instead run the bundled Redis +
-RedisInsight:
-
-```sh
-docker compose up -d
-# Redis on :6379, RedisInsight UI on http://localhost:5540
-```
-
-### 3. Run the apps
-
-**web + any TS packages (Turborepo):**
-
-```sh
-pnpm dev                      # all turbo dev tasks
-pnpm dev --filter=web         # just the web app
-```
-
-**go-core (API + workers):**
-
-```sh
-cd apps/go-core
-go run ./cmd/api              # HTTP API on :8080
-go run ./cmd/workers          # background workers (chat, retries, token refresh)
-```
-
-**ai (FastAPI):**
-
-```sh
-cd apps/ai
-uv sync
-uv run uvicorn main:app --reload --port 8000
-# health check: http://localhost:8000/api/v1/health
-```
-
-> `go-core` reaches the AI service via `AI_SERVICE_URL` (defaults to `http://localhost:8000`).
-
----
-
-## Environment variables
-
-Each app reads its own `.env`. Never commit secrets — keep a `.env.example` with empty
-values. Key variables:
-
-```sh
-# Database / cache
-DATABASE_URL=postgresql://user:pass@ep-xxx.neon.tech/neondb?sslmode=require
-REDIS_URL=rediss://default:pass@xxx.upstash.io:6379   # Upstash (TLS)
-
-# Internal services
-AI_SERVICE_URL=http://localhost:8000        # go-core → FastAPI AI service
-JWT_SECRET=your-256-bit-secret
-
-# Media (ImageKit)
-IMAGEKIT_PUBLIC_KEY=
-IMAGEKIT_PRIVATE_KEY=
-IMAGEKIT_URL_ENDPOINT=https://ik.imagekit.io/your_imagekit_id
-
-# Meta (Instagram + Facebook)
-META_APP_ID=
-META_APP_SECRET=
-META_WEBHOOK_VERIFY_TOKEN=
-
-# WhatsApp
-WA_PHONE_NUMBER_ID=
-WA_ACCESS_TOKEN=
-WA_WEBHOOK_VERIFY_TOKEN=
-
-# TikTok
-TIKTOK_CLIENT_KEY=
-TIKTOK_CLIENT_SECRET=
-TIKTOK_WEBHOOK_SECRET=
-
-# Google Workspace
-GOOGLE_CLIENT_ID=
-GOOGLE_CLIENT_SECRET=
-GOOGLE_REDIRECT_URI=
-
-# Payments (Paddle)
-PADDLE_API_KEY=
-PADDLE_WEBHOOK_SECRET=
-
-# AI
-ANTHROPIC_API_KEY=
-
-# Web (public)
-NEXT_PUBLIC_API_URL=
-```
-
----
-
 ## Tech stack
 
 | Layer | Technology |
@@ -288,10 +175,14 @@ NEXT_PUBLIC_API_URL=
 
 ## Reference
 
-The full design rationale — database schema, platform API capabilities, media pipeline,
-onboarding flow, and the phased execution roadmap — lives in
-[`SocialOS-Architecture-v3-grpc.pdf`](./SocialOS-Architecture-v3-grpc.pdf).
+See the per-app READMEs in `apps/` for service-specific details, and the shared
+packages under `packages/` for the database schema and UI library.
 
-> ⚠️ That document specifies **gRPC** for internal `go-core ↔ ai` communication. The
-> current implementation uses **HTTP/JSON (FastAPI)** instead — see
-> [the internal transport note](#a-note-on-internal-transport--fastapi-not-grpc) above.
+---
+
+## Credits & License
+
+Created by **Bimal Pandey**. All rights reserved.
+
+This project and its code may **not be used, copied, modified, or distributed without
+explicit written permission** from Bimal Pandey.
