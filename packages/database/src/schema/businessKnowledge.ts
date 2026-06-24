@@ -16,6 +16,8 @@ export const knowledgeSourceTypeEnum = pgEnum("knowledge_source_type", [
   "faq",
   "policy",
   "post",
+  "product",
+  "service",
 ]);
 
 export const knowledgeChunks = pgTable(
@@ -26,11 +28,11 @@ export const knowledgeChunks = pgTable(
       .notNull()
       .references(() => business.id, { onDelete: "cascade" }),
     sourceType: knowledgeSourceTypeEnum("source_type").notNull(),
-    sourceId: uuid("source_id").notNull(), // id of the faq/policy/post row — polymorphic, NO FK
+    sourceId: uuid("source_id").notNull(), // id of the faq/policy/post/product/service row — polymorphic, NO FK
     chunkIndex: integer("chunk_index").default(0).notNull(),
     content: text("content").notNull(), // clean chunk text (no e5 prefix)
     embedding: vector("embedding", { dimensions: 1024 }).notNull(),
-    metadata: jsonb("metadata"), // faq: { question }; post: { url, publishedAt }
+    metadata: jsonb("metadata"), // faq: { question }; post: { url, publishedAt }; product: { price, currency, sku, inStock }
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [

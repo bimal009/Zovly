@@ -62,11 +62,12 @@ func main() {
 	messageRepo := repository.NewMessageRepo(db)
 	messageEmbedRepo := repository.NewMessageEmbeddingRepo(db)
 	conversationRepo := repository.NewconversationRepo(db)
+	productVariantRepo := repository.NewProductVariantRepo(db)
 
 	planService := service.NewPlanService(db, rdb, slog, planRepo)
 	businessService := service.NewBusinessService(db, businessRepo, businessMemberRepo, userRepo, slog, appRepo)
 	appService := service.NewAppService(appRepo, slog)
-	productService := service.NewProductService(db, rdb, slog, productRepo)
+	productService := service.NewProductService(db, rdb, slog, productRepo, productVariantRepo)
 	serviceService := service.NewServiceService(db, rdb, slog, serviceRepo)
 	faqService := service.NewFaqService(faqRepo, knowledgeRepo, slog, db, *cfg)
 	chatService := service.NewChatService(db, messageRepo, appCredentialRepo, messageEmbedRepo, conversationRepo, *cfg, rdb, slog)

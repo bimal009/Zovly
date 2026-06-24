@@ -127,6 +127,20 @@
       "when": 1782286407158,
       "tag": "0017_wild_boomer",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1782317215471,
+      "tag": "0018_curved_alex_wilder",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1782317740187,
+      "tag": "0019_melted_adam_warlock",
+      "breakpoints": true
     }
   ]
 }

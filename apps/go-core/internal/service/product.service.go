@@ -25,10 +25,11 @@ type ProductService interface {
 }
 
 type productService struct {
-	db          *sqlx.DB
-	rdb         *redis.Client
-	logger      *slog.Logger
-	productRepo repository.ProductRepo
+	db                 *sqlx.DB
+	rdb                *redis.Client
+	logger             *slog.Logger
+	productRepo        repository.ProductRepo
+	productVariantRepo repository.ProductVariantRepo
 }
 
 func NewProductService(
@@ -36,16 +37,16 @@ func NewProductService(
 	rdb *redis.Client,
 	logger *slog.Logger,
 	productRepo repository.ProductRepo,
+	productVariantRepo repository.ProductVariantRepo,
 ) ProductService {
 	return &productService{
-		db:          db,
-		rdb:         rdb,
-		logger:      logger,
-		productRepo: productRepo,
+		db:                 db,
+		rdb:                rdb,
+		logger:             logger,
+		productRepo:        productRepo,
+		productVariantRepo: productVariantRepo,
 	}
 }
-
-// ─── cache helpers ────────────────────────────────────────────────────────────
 
 func productKey(id, businessID string) string {
 	return fmt.Sprintf("%s%s:%s", constants.ProductsKeys, businessID, id)
@@ -66,15 +67,39 @@ func (s *productService) invalidateBusinessCache(ctx context.Context, businessID
 	}
 }
 
-// ─── Create ───────────────────────────────────────────────────────────────────
-
 func (s *productService) Create(ctx context.Context, input models.CreateProductInput) (*models.Product, error) {
 	s.logger.Info("product create", "business_id", input.BusinessID, "name", input.Name)
 
-	product, err := s.productRepo.Create(ctx, input)
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	product, err := s.productRepo.Create(ctx, tx, input)
 	if err != nil {
 		s.logger.Error("product create failed", "business_id", input.BusinessID, "error", err)
 		return nil, err
+	}
+
+	for i := range input.Variants {
+		input.Variants[i].ProductID = product.ID
+		input.Variants[i].BusinessID = product.BusinessID
+
+		variant, err := s.productVariantRepo.Create(ctx, tx, input.Variants[i])
+		if err != nil {
+			s.logger.Error("product variant create failed",
+				"product_id", product.ID,
+				"name", input.Variants[i].Name,
+				"error", err,
+			)
+			return nil, err
+		}
+		product.Variants = append(product.Variants, *variant)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 
 	s.invalidateBusinessCache(ctx, input.BusinessID)
@@ -82,8 +107,6 @@ func (s *productService) Create(ctx context.Context, input models.CreateProductI
 	s.logger.Info("product created", "id", product.ID, "business_id", product.BusinessID)
 	return product, nil
 }
-
-// ─── GetByID ──────────────────────────────────────────────────────────────────
 
 func (s *productService) GetByID(ctx context.Context, id, businessID string) (*models.Product, error) {
 	cacheKey := productKey(id, businessID)
@@ -116,8 +139,6 @@ func (s *productService) GetByID(ctx context.Context, id, businessID string) (*m
 
 	return product, nil
 }
-
-// ─── List ─────────────────────────────────────────────────────────────────────
 
 func (s *productService) List(ctx context.Context, businessID string, f repository.ListProductsFilter) ([]models.Product, error) {
 	cacheKey := productListKey(businessID)

@@ -9,7 +9,8 @@ var (
 )
 
 const (
-	PlansCacheKey = "plans:"
-	ProductsKeys  = "products:"
-	ServicesKeys  = "services:"
+	PlansCacheKey  = "plans:"
+	ProductsKeys   = "products:"
+	ServicesKeys   = "services:"
+	CategoriesKeys = "categories:"
 )

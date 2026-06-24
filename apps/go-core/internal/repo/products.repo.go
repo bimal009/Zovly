@@ -13,7 +13,7 @@ import (
 )
 
 type ProductRepo interface {
-	Create(ctx context.Context, input models.CreateProductInput) (*models.Product, error)
+	Create(ctx context.Context, tx *sqlx.Tx, input models.CreateProductInput) (*models.Product, error)
 	GetByID(ctx context.Context, id, businessID string) (*models.Product, error)
 	List(ctx context.Context, businessID string, f ListProductsFilter) ([]models.Product, error)
 	Update(ctx context.Context, id, businessID string, input models.UpdateProductInput) (*models.Product, error)
@@ -32,7 +32,7 @@ func NewProductRepo(db *sqlx.DB) ProductRepo {
 
 // ─── Create ───────────────────────────────────────────────────────────────────
 
-func (r *productRepo) Create(ctx context.Context, input models.CreateProductInput) (*models.Product, error) {
+func (r *productRepo) Create(ctx context.Context, tx *sqlx.Tx, input models.CreateProductInput) (*models.Product, error) {
 	const q = `
 		INSERT INTO products (
 			business_id, name, description, sku, status,
@@ -45,7 +45,7 @@ func (r *productRepo) Create(ctx context.Context, input models.CreateProductInpu
 			:stock_qty, :low_stock_threshold,
 			:images
 		)
-		RETURNING id`
+		RETURNING *`
 
 	status := input.Status
 	if status == "" {
@@ -56,8 +56,7 @@ func (r *productRepo) Create(ctx context.Context, input models.CreateProductInpu
 		currency = "NPR"
 	}
 
-	var id string
-	row, err := r.db.NamedQueryContext(ctx, q, map[string]any{
+	rows, err := sqlx.NamedQueryContext(ctx, tx, q, map[string]any{
 		"business_id":         input.BusinessID,
 		"name":                input.Name,
 		"description":         input.Description,
@@ -74,18 +73,17 @@ func (r *productRepo) Create(ctx context.Context, input models.CreateProductInpu
 	if err != nil {
 		return nil, fmt.Errorf("product create: %w", err)
 	}
-	defer row.Close()
+	defer rows.Close()
 
-	if row.Next() {
-		if err := row.Scan(&id); err != nil {
-			return nil, fmt.Errorf("product create scan id: %w", err)
+	var p models.Product
+	if rows.Next() {
+		if err := rows.StructScan(&p); err != nil {
+			return nil, fmt.Errorf("product create scan: %w", err)
 		}
 	}
 
-	return r.GetByID(ctx, id, input.BusinessID)
+	return &p, nil
 }
-
-// ─── GetByID ──────────────────────────────────────────────────────────────────
 
 func (r *productRepo) GetByID(ctx context.Context, id, businessID string) (*models.Product, error) {
 	var p models.Product
