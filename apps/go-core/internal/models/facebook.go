@@ -34,14 +34,18 @@ type FacebookUser struct {
 type FacebookAttachmentType string
 
 const (
-	FacebookAttachmentTypeImage    FacebookAttachmentType = "image"
-	FacebookAttachmentTypeVideo    FacebookAttachmentType = "video"
-	FacebookAttachmentTypeAudio    FacebookAttachmentType = "audio"
-	FacebookAttachmentTypeFile     FacebookAttachmentType = "file"
-	FacebookAttachmentTypeTemplate FacebookAttachmentType = "template"
-	FacebookAttachmentTypeFallback FacebookAttachmentType = "fallback"
-	FacebookAttachmentTypeURL      FacebookAttachmentType = "url"
-	FacebookAttachmentTypeLink     FacebookAttachmentType = "link"
+	FacebookAttachmentTypeImage        FacebookAttachmentType = "image"
+	FacebookAttachmentTypeVideo        FacebookAttachmentType = "video"
+	FacebookAttachmentTypeAudio        FacebookAttachmentType = "audio"
+	FacebookAttachmentTypeFile         FacebookAttachmentType = "file"
+	FacebookAttachmentTypeTemplate     FacebookAttachmentType = "template"
+	FacebookAttachmentTypeFallback     FacebookAttachmentType = "fallback"
+	FacebookAttachmentTypeURL          FacebookAttachmentType = "url"
+	FacebookAttachmentTypeLink         FacebookAttachmentType = "link"
+	FacebookAttachmentTypeReel         FacebookAttachmentType = "reel"
+	FacebookAttachmentTypePost         FacebookAttachmentType = "post"
+	FacebookAttachmentTypeShare        FacebookAttachmentType = "share"
+	FacebookAttachmentTypeStoryMention FacebookAttachmentType = "story_mention"
 )
 
 type FacebookMessage struct {
@@ -105,6 +109,17 @@ type FacebookChangeValue struct {
 type FacebookFrom struct {
 	ID   string `json:"id"             db:"id"`
 	Name string `json:"name,omitempty" db:"name"`
+}
+
+// FacebookObjectDetails is the Graph API view of a shared post/reel/photo,
+// resolved from the URL a customer sends in a DM. FullPicture is present when
+// the object carries an image we can run through the AI image route.
+type FacebookObjectDetails struct {
+	ID           string `json:"id"`
+	Message      string `json:"message,omitempty"`
+	CreatedTime  string `json:"created_time,omitempty"`
+	PermalinkURL string `json:"permalink_url,omitempty"`
+	FullPicture  string `json:"full_picture,omitempty"`
 }
 
 type MessengerProfile struct {

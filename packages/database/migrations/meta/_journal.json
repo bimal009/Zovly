@@ -120,6 +120,13 @@
       "when": 1782143925554,
       "tag": "0016_bent_zaladane",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1782286407158,
+      "tag": "0017_wild_boomer",
+      "breakpoints": true
     }
   ]
 }

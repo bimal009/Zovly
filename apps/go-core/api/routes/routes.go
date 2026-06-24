@@ -109,6 +109,5 @@ func RegisterAll(
 		}
 
 		connections.POST("/instagram/activate", instagramHandler.ActivateInstagram)
-		connections.POST("/instagram/subscribe", instagramHandler.SubscribeWebhook)
 	}
 }

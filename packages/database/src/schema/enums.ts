@@ -16,6 +16,7 @@ export const messageMediaTypeEnum = pgEnum("message_media_type", [
   "video",
   "audio",
   "document",
+  "link",
 ]);
 
 export const billingCycleEnum = pgEnum("billing_cycle", ["monthly", "yearly"]);

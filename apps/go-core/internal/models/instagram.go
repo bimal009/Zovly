@@ -52,6 +52,7 @@ const (
 	InstagramAttachmentTypeURL   InstagramAttachmentType = "url"
 	InstagramAttachmentTypeLink  InstagramAttachmentType = "link"
 	InstagramAttachmentTypeReel  InstagramAttachmentType = "ig_reel"
+	InstagramAttachmentTypePost  InstagramAttachmentType = "ig_post"
 	InstagramAttachmentTypeStory InstagramAttachmentType = "story_mention"
 )
 
@@ -69,6 +70,8 @@ type InstagramAttachment struct {
 
 type InstagramAttachmentPayload struct {
 	URL string `json:"url,omitempty" db:"url"`
+	// Title carries the caption Instagram includes for shared reels/posts.
+	Title string `json:"title,omitempty" db:"title"`
 }
 
 // ─── Instagram changes (comments / mentions / story) ─────────────────────────

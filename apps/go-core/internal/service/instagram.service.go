@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"strings"
 	"time"
 
 	"github.com/bimal009/Zovly/internal/config"
@@ -39,7 +38,6 @@ type InstagramService interface {
 	RefreshToken(ctx context.Context, accessToken string) (*models.IgLongLivedResponse, error)
 	RefreshExpiringTokens(ctx context.Context) error
 	FetchUserProfile(ctx context.Context, accessToken string) (*models.InstagramUser, error)
-	SubscribeWebhook(ctx context.Context, businessID string) error
 	HandleInstagramInboundMessage(ctx context.Context, platform models.Platform, instagramUserID string, event models.InstagramMessagingEvent) error
 }
 
@@ -75,12 +73,6 @@ func NewInstagramService(
 	}
 }
 
-// VerifyFacebookAndInstaConnection checks, via the Facebook Graph API, whether
-// any of the business's connected Facebook Pages has an Instagram Business
-// account linked to it. Instagram messaging requires this Page↔IG link, so the
-// connect flow uses this to confirm the link is in place before activating.
-// Returns the linked Instagram business account id (and true) on the first page
-// that reports one.
 func (s *instagramService) VeirfyFacebookAndInstaConnection(ctx context.Context, businessID string) (bool, error) {
 	facebook, err := s.appCredentialRepo.ListByApp(ctx, businessID, string(models.PlatformFacebook))
 	if err != nil {
@@ -122,9 +114,6 @@ func (s *instagramService) VeirfyFacebookAndInstaConnection(ctx context.Context,
 	return false, nil
 }
 
-// fetchLinkedInstagramAccount returns the Instagram Business account id linked to
-// the given Facebook Page, or "" if none is linked. Uses the Page access token.
-//   GET /{page-id}?fields=instagram_business_account
 func (s *instagramService) fetchLinkedInstagramAccount(ctx context.Context, pageID, pageToken string) (string, error) {
 	params := url.Values{
 		"fields":       {"instagram_business_account"},
@@ -183,9 +172,6 @@ func (s *instagramService) GetConnectionStatus(ctx context.Context, businessID s
 		account = &creds[0]
 	}
 
-	// Confirm the IG account is actually linked to a Facebook Page — without
-	// that link Instagram won't deliver DMs and the AI can't reply. A failure
-	// here shouldn't break the status call, so we just treat it as "not linked".
 	facebookLinked, err := s.VeirfyFacebookAndInstaConnection(ctx, businessID)
 	if err != nil {
 		s.log.Warn("failed to verify facebook-instagram link", "business_id", businessID, "err", err)
@@ -199,9 +185,6 @@ func (s *instagramService) GetConnectionStatus(ctx context.Context, businessID s
 	}, nil
 }
 
-// ActivateConnection flips the business's Instagram credential to active. The
-// OAuth callback stores it inactive, so this is what the "Connect with app"
-// button triggers before messaging can be enabled.
 func (s *instagramService) ActivateConnection(ctx context.Context, businessID string) error {
 	if err := s.appCredentialRepo.SetActiveByApp(ctx, businessID, "instagram", true); err != nil {
 		return fmt.Errorf("activate instagram connection: %w", err)
@@ -237,8 +220,7 @@ func (s *instagramService) SaveConnection(ctx context.Context, businessID, igUse
 		PlatformAccountID:   &igUserID,
 		PlatformAccountName: &igUsername,
 		Scopes:              pq.StringArray{"instagram_business_basic", "instagram_business_content_publish", "instagram_business_manage_comments", "instagram_business_manage_messages"},
-		// Stored inactive on connect — the user must explicitly click "Connect with
-		// app" in the UI to activate the credential (ActivateConnection).
+
 		IsActive:    false,
 		ConnectedAt: &now,
 	}
@@ -250,74 +232,6 @@ func (s *instagramService) SaveConnection(ctx context.Context, businessID, igUse
 		return fmt.Errorf("flip instagram connection flag: %w", err)
 	}
 	return tx.Commit()
-}
-
-// SubscribeWebhook subscribes the business's connected Instagram account to the
-// messaging webhook fields and stamps webhook_subscribed_at on the credential.
-// Mirrors the Facebook SubscribeMessengerPage flow, but Instagram has a single
-// account per business so no page id is needed.
-func (s *instagramService) SubscribeWebhook(ctx context.Context, businessID string) error {
-	creds, err := s.appCredentialRepo.ListByApp(ctx, businessID, "instagram")
-	if err != nil {
-		return fmt.Errorf("list instagram credentials: %w", err)
-	}
-	if len(creds) == 0 {
-		return fmt.Errorf("no instagram account connected for business %s", businessID)
-	}
-
-	cred := creds[0]
-	if cred.AccessToken == nil {
-		return fmt.Errorf("instagram account has no access token")
-	}
-	if cred.PlatformAccountID == nil {
-		return fmt.Errorf("instagram account has no platform account id")
-	}
-
-	key, err := base64.StdEncoding.DecodeString(s.cfg.App.EncryptionKey)
-	if err != nil || len(key) != 32 {
-		return fmt.Errorf("invalid encryption key configuration")
-	}
-
-	token, err := utils.Decrypt(*cred.AccessToken, key)
-	if err != nil {
-		return fmt.Errorf("decrypt instagram token: %w", err)
-	}
-
-	if err := s.subscribeWebhooks(ctx, token); err != nil {
-		return fmt.Errorf("subscribe instagram webhooks: %w", err)
-	}
-
-	if err := s.appCredentialRepo.UpdateWebhookSubscribed(ctx, businessID, *cred.PlatformAccountID, "instagram"); err != nil {
-		return fmt.Errorf("mark webhook subscribed: %w", err)
-	}
-	return nil
-}
-
-func (s *instagramService) subscribeWebhooks(ctx context.Context, accessToken string) error {
-	params := url.Values{
-		"subscribed_fields": {"messages,messaging_postbacks,messaging_seen,message_reactions"},
-		"access_token":      {accessToken},
-	}
-	reqURL := "https://graph.instagram.com/v25.0/me/subscribed_apps"
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, strings.NewReader(params.Encode()))
-	if err != nil {
-		return fmt.Errorf("build subscribe request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("call subscribe endpoint: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("subscribe failed (%d): %s", resp.StatusCode, body)
-	}
-	s.log.Info("instagram webhooks subscribed")
-	return nil
 }
 
 func (s *instagramService) RefreshToken(ctx context.Context, accessToken string) (*models.IgLongLivedResponse, error) {
@@ -417,21 +331,6 @@ func (s *instagramService) HandleInstagramInboundMessage(ctx context.Context, pl
 		return fmt.Errorf("get credential for instagram user %s: %w", instagramUserID, err)
 	}
 
-	encKey, err := base64.StdEncoding.DecodeString(s.cfg.App.EncryptionKey)
-	if err != nil {
-		s.log.Error("decode encryption key failed", "err", err)
-		return fmt.Errorf("decode encryption key: %w", err)
-	}
-	instagramToken, err := utils.Decrypt(*cred.AccessToken, encKey)
-	if err != nil {
-		s.log.Error("token decrypt failed", "err", err)
-		return fmt.Errorf("decrypt access token: %w", err)
-	}
-
-	// Resolve the sender's profile. Prefer the Facebook Page token + Graph API —
-	// the Instagram-Login User Profile API frequently returns 200 with name/
-	// username withheld. Falls back to the IG token if no page is connected or
-	// Graph returns nothing. (The connect flow now forces a Facebook Page link.)
 	senderProfile := &models.InstagramUser{}
 	if pageToken, perr := s.getFacebookPageToken(ctx, cred.BusinessID); perr != nil {
 		s.log.Warn("no facebook page token for ig profile lookup", "business_id", cred.BusinessID, "err", perr)
@@ -439,15 +338,6 @@ func (s *instagramService) HandleInstagramInboundMessage(ctx context.Context, pl
 		s.log.Warn("graph sender profile fetch failed", "sender_id", event.Sender.ID, "err", gerr)
 	} else {
 		senderProfile = profile
-	}
-
-	// Fallback to the Instagram-Login profile API when Graph yielded nothing.
-	if senderProfile.Name == "" && senderProfile.Username == "" {
-		if profile, ferr := s.fetchSenderProfile(ctx, event.Sender.ID, instagramToken); ferr != nil {
-			s.log.Warn("fetch sender profile failed, using fallback", "sender_id", event.Sender.ID, "err", ferr)
-		} else {
-			senderProfile = profile
-		}
 	}
 
 	s.log.Info("sender profile fetched",
@@ -478,8 +368,6 @@ func (s *instagramService) HandleInstagramInboundMessage(ctx context.Context, pl
 	}
 	s.log.Info("conversation ready", "conversation_id", conv.ID, "business_id", cred.BusinessID)
 
-	// 1) Text — Meta can send text and attachments in the SAME event,
-	//    so this runs independently of the attachment loop below.
 	if event.Message.Text != "" {
 		text := event.Message.Text
 		insertedMsg, err := s.messageRepo.Create(ctx, tx, models.CreateMessage{
@@ -500,8 +388,6 @@ func (s *instagramService) HandleInstagramInboundMessage(ctx context.Context, pl
 		}
 	}
 
-	// 2) Attachments — size-gated, type-aware.
-	// 2) Attachments — size-gated, type-aware.
 	for _, attachment := range event.Message.Attachments {
 		switch attachment.Type {
 
@@ -521,14 +407,21 @@ func (s *instagramService) HandleInstagramInboundMessage(ctx context.Context, pl
 				attachment.Payload.URL, models.MediaTypeDocument, "file",
 				"[Customer sent a file that can't be processed automatically]")
 
+		// Shared post — Instagram hands us the media as a direct image asset on
+		// the lookaside CDN, so run it through the AI image route.
+		case models.InstagramAttachmentTypePost:
+			s.chatService.HandleImageAttachment(ctx, tx, platform, conv, &cred, instagramUserID, attachment.Payload.URL)
+
+		// Reel/story/link — no media asset, but Instagram includes the caption in
+		// the payload, so hand that text to the AI alongside the link.
 		case models.InstagramAttachmentTypeReel:
-			s.chatService.HandleSharedContent(ctx, tx, platform, conv, &cred, attachment.Payload.URL, "reel")
+			s.chatService.HandleSharedContent(ctx, tx, platform, conv, &cred, attachment.Payload.URL, "reel", attachment.Payload.Title)
 
 		case models.InstagramAttachmentTypeStory:
-			s.chatService.HandleSharedContent(ctx, tx, platform, conv, &cred, attachment.Payload.URL, "story")
+			s.chatService.HandleSharedContent(ctx, tx, platform, conv, &cred, attachment.Payload.URL, "story", attachment.Payload.Title)
 
 		case models.InstagramAttachmentTypeLink, models.InstagramAttachmentTypeURL:
-			s.chatService.HandleSharedContent(ctx, tx, platform, conv, &cred, attachment.Payload.URL, "link")
+			s.chatService.HandleSharedContent(ctx, tx, platform, conv, &cred, attachment.Payload.URL, "link", attachment.Payload.Title)
 
 		default:
 			s.log.Warn("unknown attachment type", "type", attachment.Type)
@@ -539,17 +432,12 @@ func (s *instagramService) HandleInstagramInboundMessage(ctx context.Context, pl
 	return tx.Commit()
 }
 
-// getFacebookPageToken returns a decrypted Facebook Page access token for the
-// business, preferring an active page. Instagram sender profiles are fetched
-// through the Facebook Graph API with this token because it's far more reliable
-// than the Instagram-Login User Profile API.
 func (s *instagramService) getFacebookPageToken(ctx context.Context, businessID string) (string, error) {
 	creds, err := s.appCredentialRepo.ListByApp(ctx, businessID, "facebook")
 	if err != nil {
 		return "", fmt.Errorf("list facebook credentials: %w", err)
 	}
 
-	// Prefer an active page; otherwise fall back to the first page that has a token.
 	var chosen *models.AppCredential
 	for i := range creds {
 		if creds[i].AccessToken == nil {
@@ -578,10 +466,6 @@ func (s *instagramService) getFacebookPageToken(ctx context.Context, businessID 
 	return token, nil
 }
 
-// fetchSenderProfileViaGraph fetches an Instagram sender's profile through the
-// Facebook Graph API using a Page access token. Requires the IG account to be
-// linked to a Facebook Page; returns the name/username/avatar that the
-// Instagram-Login profile API often withholds.
 func (s *instagramService) fetchSenderProfileViaGraph(ctx context.Context, senderID, pageToken string) (*models.InstagramUser, error) {
 	params := url.Values{
 		"fields":       {"name,username,profile_pic,follower_count"},
@@ -616,64 +500,6 @@ func (s *instagramService) fetchSenderProfileViaGraph(ctx context.Context, sende
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("decode graph sender profile: %w", err)
-	}
-	return &models.InstagramUser{
-		ID:         result.ID,
-		Name:       result.Name,
-		Username:   result.Username,
-		ProfilePic: result.ProfilePic,
-	}, nil
-}
-
-func (s *instagramService) fetchSenderProfile(ctx context.Context, senderID, accessToken string) (*models.InstagramUser, error) {
-	// The Instagram messaging User Profile API exposes the avatar under
-	// "profile_pic" — "profile_picture_url" is only valid on the business's
-	// own /me profile and returns "nonexisting field" here.
-	params := url.Values{
-		"fields":       {"name,username,profile_pic,follower_count,is_user_follow_business,is_business_follow_user"},
-		"access_token": {accessToken},
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		fmt.Sprintf("https://graph.instagram.com/v25.0/%s?%s", senderID, params.Encode()), nil)
-	if err != nil {
-		return nil, fmt.Errorf("build sender profile request: %w", err)
-	}
-
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("call sender profile endpoint: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read sender profile response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("sender profile fetch failed (%d): %s", resp.StatusCode, body)
-	}
-
-	var result struct {
-		ID                   string `json:"id"`
-		Name                 string `json:"name"`
-		Username             string `json:"username"`
-		ProfilePic           string `json:"profile_pic"`
-		FollowerCount        int    `json:"follower_count"`
-		IsUserFollowBusiness bool   `json:"is_user_follow_business"`
-		IsBusinessFollowUser bool   `json:"is_business_follow_user"`
-	}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("decode sender profile: %w", err)
-	}
-
-	// Instagram returns 200 even when profile fields are withheld — typically
-	// because the app only has Standard/Development access for
-	// instagram_business_manage_messages (the profile API then only returns
-	// data for users who hold an app role). Log the raw payload so an empty
-	// contact name can be traced to what the API actually returned.
-	if result.Name == "" || result.Username == "" {
-		s.log.Warn("sender profile fields missing", "sender_id", senderID, "raw", string(body))
 	}
 	return &models.InstagramUser{
 		ID:         result.ID,

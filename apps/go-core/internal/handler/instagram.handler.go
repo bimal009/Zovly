@@ -181,9 +181,6 @@ func (h *InstagramHandler) InstagramCallback(c *gin.Context) {
 		return
 	}
 
-	// Webhooks identify the account by its Instagram professional account ID
-	// (the /me user_id field), NOT the OAuth token's app-scoped user_id. Storing
-	// the wrong one makes inbound-message credential lookups miss.
 	igUserID := profile.UserID
 	if igUserID == "" {
 		igUserID = strconv.FormatInt(shortLived.UserID, 10) // fallback
@@ -214,9 +211,6 @@ func (h *InstagramHandler) GetConnectionStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, responses.Success("instagram connection status", status))
 }
 
-// ActivateInstagram flips the connected (but inactive) Instagram credential to
-// active. The OAuth callback stores it inactive on purpose, so the user must
-// explicitly click "Connect with app" in the UI before messaging can be enabled.
 func (h *InstagramHandler) ActivateInstagram(c *gin.Context) {
 	businessID, ok := businessIDFromCtx(c)
 	if !ok {
@@ -232,26 +226,6 @@ func (h *InstagramHandler) ActivateInstagram(c *gin.Context) {
 
 	h.log.Info("instagram connection activated", "business_id", businessID)
 	c.JSON(http.StatusOK, responses.Success("instagram activated", gin.H{"is_active": true}))
-}
-
-// SubscribeWebhook subscribes the connected Instagram account to messaging
-// webhook fields and stamps webhook_subscribed_at. Mirrors the Facebook
-// messenger subscribe endpoint.
-func (h *InstagramHandler) SubscribeWebhook(c *gin.Context) {
-	businessID, ok := businessIDFromCtx(c)
-	if !ok {
-		c.JSON(http.StatusUnauthorized, responses.Unauthorized("unauthorized"))
-		return
-	}
-
-	if err := h.instagramService.SubscribeWebhook(c.Request.Context(), businessID); err != nil {
-		h.log.Error("failed to subscribe instagram webhook", "business_id", businessID, "error", err)
-		c.JSON(http.StatusInternalServerError, responses.InternalServerError("failed to subscribe instagram webhook"))
-		return
-	}
-
-	h.log.Info("instagram webhook subscribed", "business_id", businessID)
-	c.JSON(http.StatusOK, responses.Success[any]("instagram subscribed to webhooks", nil))
 }
 
 // VerifyWebhook handles Meta's GET verification challenge for the Instagram webhook.

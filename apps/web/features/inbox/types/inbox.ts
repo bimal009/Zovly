@@ -16,7 +16,12 @@ export type Conversation = {
 export type MessageDirection = "in" | "out";
 export type MessageSender = "ai" | "human";
 export type MessageStatus = "pending" | "sent" | "failed" | "skipped";
-export type MessageMediaType = "image" | "video" | "audio" | "document";
+export type MessageMediaType =
+  | "image"
+  | "video"
+  | "audio"
+  | "document"
+  | "link";
 
 export type Message = {
   id: string;

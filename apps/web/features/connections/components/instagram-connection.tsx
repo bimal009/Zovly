@@ -9,12 +9,8 @@ import {
   IconBrandFacebook,
   IconBrandInstagram,
   IconCalendar,
-  IconCheck,
   IconCircleCheck,
   IconLoader2,
-  IconLock,
-  IconMessage,
-  IconSparkles,
   IconUser,
 } from "@tabler/icons-react";
 import { Badge } from "@repo/ui/components/ui/badge";
@@ -24,123 +20,9 @@ import {
   useActivateInstagram,
   useBusinessAppConnections,
   useInstagramConnectionStatus,
-  useSubscribeInstagramWebhook,
 } from "../client/connections";
 import { getInstagramConnectURL } from "../api/connections";
 import type { ConnectedPage } from "../types/connections";
-
-// Messaging lives inside the account card as a section (not a separate card).
-// Until the account is activated it's locked; once active it shows the
-// Facebook-Page requirement and the "Enable messaging" action.
-function MessagingSection({
-  account,
-  active,
-}: {
-  account: ConnectedPage;
-  active: boolean;
-}) {
-  const subscribe = useSubscribeInstagramWebhook();
-  const isSubscribed = !!account.webhook_subscribed_at;
-  const subscribedAt = account.webhook_subscribed_at
-    ? new Date(account.webhook_subscribed_at).toLocaleDateString()
-    : null;
-
-  // Locked state — account not yet activated, so messaging can't be enabled.
-  if (!active) {
-    return (
-      <div className="bg-muted/40 flex items-start gap-3 rounded-lg border border-dashed p-4">
-        <div className="bg-muted flex size-9 shrink-0 items-center justify-center rounded-full">
-          <IconLock className="text-muted-foreground size-5" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium">Messaging</p>
-          <p className="text-muted-foreground text-sm">
-            Connect with the app above to unlock direct messages.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  // Active + already subscribed — messaging is live.
-  if (isSubscribed) {
-    return (
-      <div className="border-success/30 bg-success/10 flex items-start gap-3 rounded-lg border p-4">
-        <div className="bg-success/15 flex size-9 shrink-0 items-center justify-center rounded-full">
-          <IconCheck className="text-success size-5" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="font-semibold">Messaging active</p>
-            <Badge
-              variant="secondary"
-              className="bg-success/15 text-success shrink-0"
-            >
-              Receiving DMs
-            </Badge>
-          </div>
-          <p className="text-muted-foreground text-sm">
-            Direct messages are delivered to your inbox
-            {subscribedAt ? ` since ${subscribedAt}` : ""}.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  // Active but messaging not yet enabled.
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-start gap-3">
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-warning/15">
-          <IconMessage className="text-warning size-5" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="font-semibold">Enable messaging</p>
-            <Badge
-              variant="outline"
-              className="border-warning/40 text-warning shrink-0"
-            >
-              Action needed
-            </Badge>
-          </div>
-          <p className="text-muted-foreground text-sm">
-            One more step before Instagram starts sending us your DMs.
-          </p>
-        </div>
-      </div>
-
-      <ul className="flex flex-col gap-2 text-sm">
-        <li className="flex items-center gap-2">
-          <IconMessage className="size-4 shrink-0 text-primary" />
-          <span>Receive customer DMs in your unified inbox</span>
-        </li>
-        <li className="flex items-center gap-2">
-          <IconSparkles className="size-4 shrink-0 text-primary" />
-          <span>Let the AI auto-reply and qualify leads</span>
-        </li>
-        <li className="flex items-center gap-2">
-          <IconBolt className="size-4 shrink-0 text-primary" />
-          <span>Capture every conversation in real time</span>
-        </li>
-      </ul>
-
-      <Button
-        onClick={() => subscribe.mutate()}
-        disabled={subscribe.isPending}
-        className="cursor-pointer"
-      >
-        {subscribe.isPending ? (
-          <IconLoader2 className="size-4 animate-spin" />
-        ) : (
-          <IconMessage className="size-4" />
-        )}
-        {subscribe.isPending ? "Enabling…" : "Enable messaging"}
-      </Button>
-    </div>
-  );
-}
 
 function AccountCard({
   account,
@@ -286,9 +168,7 @@ function AccountCard({
               <IconBolt className="text-warning size-5" />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="font-semibold">
-                Finish connecting
-              </p>
+              <p className="font-semibold">Finish connecting</p>
               <p className="text-sm text-muted-foreground">
                 Your account is linked but not active yet. Connect it with the
                 app to start using it.
@@ -307,13 +187,6 @@ function AccountCard({
             )}
             {activate.isPending ? "Connecting…" : "Connect with app"}
           </Button>
-        </div>
-      )}
-
-      {/* Messaging requires the Facebook-Page link — hide it until that's done. */}
-      {facebookLinked && (
-        <div className="border-t pt-5">
-          <MessagingSection account={account} active={isActive} />
         </div>
       )}
     </div>
@@ -376,8 +249,8 @@ export function InstagramConnection() {
               </p>
             </div>
             <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
-              Without linking your Instagram to a Facebook Page, you won&apos;t be
-              able to manage messages, comments, and replies with AI.
+              Without linking your Instagram to a Facebook Page, you won&apos;t
+              be able to manage messages, comments, and replies with AI.
             </p>
             <Button
               asChild

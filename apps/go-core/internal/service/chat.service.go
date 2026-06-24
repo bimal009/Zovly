@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"regexp"
 	"time"
 
 	"github.com/bimal009/Zovly/internal/config"
@@ -30,7 +31,7 @@ type ChatService interface {
 	HandleImageAttachment(ctx context.Context, tx *sqlx.Tx, platform models.Platform, conv *models.Conversation, cred *models.AppCredential, pageID, mediaURL string)
 	HandleAudioAttachment(ctx context.Context, tx *sqlx.Tx, platform models.Platform, conv *models.Conversation, cred *models.AppCredential, pageID, mediaURL string)
 	HandleUnprocessableAttachment(ctx context.Context, tx *sqlx.Tx, platform models.Platform, conv *models.Conversation, cred *models.AppCredential, pageID, mediaURL string, mediaType models.MessageMediaType, label, placeholder string)
-	HandleSharedLink(ctx context.Context, tx *sqlx.Tx, platform models.Platform, conv *models.Conversation, cred *models.AppCredential, attachment models.FacebookAttachment)
+	HandleSharedLink(ctx context.Context, tx *sqlx.Tx, platform models.Platform, conv *models.Conversation, cred *models.AppCredential, pageToken string, attachment models.FacebookAttachment)
 
 	// called by the worker (async) to resolve media → text
 	GetImageDetails(ctx context.Context, fileURL string) (string, error)
@@ -39,7 +40,7 @@ type ChatService interface {
 	HandleSharedContent(
 		ctx context.Context, tx *sqlx.Tx, platform models.Platform,
 		conv *models.Conversation, cred *models.AppCredential,
-		contentURL, label string,
+		contentURL, label, caption string,
 	)
 }
 
@@ -156,11 +157,115 @@ func (s *chatService) HandleUnprocessableAttachment(ctx context.Context, tx *sql
 	s.log.Info(label+" needs human handoff", "conversation_id", conv.ID)
 }
 
-func (s *chatService) HandleSharedLink(ctx context.Context, tx *sqlx.Tx, platform models.Platform, conv *models.Conversation, cred *models.AppCredential, attachment models.FacebookAttachment) {
+// HandleSharedLink stores shared content the customer sent in a DM — a post,
+// reel, story, or plain link. When we can resolve the object via the Graph API
+// we feed the real caption/message to the AI; otherwise we fall back to the raw
+// link so the AI at least knows something was shared.
+func (s *chatService) HandleSharedLink(ctx context.Context, tx *sqlx.Tx, platform models.Platform, conv *models.Conversation, cred *models.AppCredential, pageToken string, attachment models.FacebookAttachment) {
 	mediaType := models.MediaTypeLink
 	link := attachment.Payload.URL
-	content := fmt.Sprintf("[Customer shared a link: %s]", link)
+	label := facebookAttachmentLabel(attachment.Type)
+
+	pageID := ""
+	if cred.PlatformAccountID != nil {
+		pageID = *cred.PlatformAccountID
+	}
+
+	details, err := s.fetchFacebookObjectDetails(ctx, link, pageID, pageToken)
+	if err != nil {
+		s.log.Warn("fetch shared content details failed, storing link only",
+			"type", attachment.Type, "url", link, "err", err)
+		content := fmt.Sprintf("[Customer shared a %s: %s]", label, link)
+		s.storeMediaMessage(ctx, tx, platform, conv, cred, &content, &link, &mediaType, true)
+		return
+	}
+
+	// The shared object carries an image — run it through the AI image route so
+	// the model can read what's actually in the post, not just the link.
+	if details.FullPicture != "" {
+		s.HandleImageAttachment(ctx, tx, platform, conv, cred, pageID, details.FullPicture)
+		return
+	}
+
+	content := fmt.Sprintf("[Customer shared a %s: %s]", label, link)
+	if details.Message != "" {
+		content = fmt.Sprintf("[Customer shared a %s: %s]\nContent: %s", label, link, details.Message)
+	}
 	s.storeMediaMessage(ctx, tx, platform, conv, cred, &content, &link, &mediaType, true)
+}
+
+// facebookAttachmentLabel maps a Graph attachment type to a human-readable noun
+// used in the message we hand to the AI.
+func facebookAttachmentLabel(t models.FacebookAttachmentType) string {
+	switch t {
+	case models.FacebookAttachmentTypeReel:
+		return "reel"
+	case models.FacebookAttachmentTypePost:
+		return "post"
+	case models.FacebookAttachmentTypeShare:
+		return "post"
+	case models.FacebookAttachmentTypeStoryMention:
+		return "story"
+	default:
+		return "link"
+	}
+}
+
+// fbObjectIDPattern pulls the numeric object id out of a shared Facebook URL.
+// Covers /reel/{id}, /posts/{id}, /permalink/{id}, ?story_fbid={id}, ?fbid={id}.
+var fbObjectIDPattern = regexp.MustCompile(`(?:reel/|posts/|permalink/|videos/|story_fbid=|fbid=|/)(\d{6,})`)
+
+// fbPfbidPattern captures the opaque pfbid token from a privacy-wrapped post URL.
+var fbPfbidPattern = regexp.MustCompile(`(pfbid[0-9A-Za-z]+)`)
+
+// fetchFacebookObjectDetails resolves a shared Facebook URL to its post details
+// via the Graph API. A numeric id (reels, permalinks, photos) addresses the
+// object directly; a pfbid post is addressed as the page-scoped composite id
+// {page-id}_{pfbid}, which only resolves when the page token can read it (i.e.
+// the customer shared this page's own post). Anything else returns an error and
+// the caller stores the raw link.
+func (s *chatService) fetchFacebookObjectDetails(ctx context.Context, sharedURL, pageID, pageToken string) (*models.FacebookObjectDetails, error) {
+	if pageToken == "" {
+		return nil, fmt.Errorf("missing page token")
+	}
+
+	var objectID string
+	if m := fbObjectIDPattern.FindStringSubmatch(sharedURL); len(m) >= 2 {
+		objectID = m[1]
+	} else if p := fbPfbidPattern.FindString(sharedURL); p != "" && pageID != "" {
+		objectID = pageID + "_" + p
+	}
+	if objectID == "" {
+		return nil, fmt.Errorf("no resolvable object id in url %q", sharedURL)
+	}
+
+	params := url.Values{
+		"fields":       {"id,message,created_time,permalink_url,full_picture"},
+		"access_token": {pageToken},
+	}
+	reqURL := fmt.Sprintf("https://graph.facebook.com/v25.0/%s?%s", objectID, params.Encode())
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build object request: %w", err)
+	}
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("call object endpoint: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("object fetch failed (%d): %s", resp.StatusCode, body)
+	}
+
+	var details models.FacebookObjectDetails
+	if err := json.NewDecoder(resp.Body).Decode(&details); err != nil {
+		return nil, fmt.Errorf("decode object details: %w", err)
+	}
+	return &details, nil
 }
 
 func (s *chatService) storeMediaMessage(ctx context.Context, tx *sqlx.Tx, platform models.Platform, conv *models.Conversation, cred *models.AppCredential, content *string, mediaURL *string, mediaType *models.MessageMediaType, stream bool) {
@@ -300,9 +405,12 @@ func (s *chatService) callMediaEndpoint(ctx context.Context, path, fileURL, fiel
 func (s *chatService) HandleSharedContent(
 	ctx context.Context, tx *sqlx.Tx, platform models.Platform,
 	conv *models.Conversation, cred *models.AppCredential,
-	contentURL, label string,
+	contentURL, label, caption string,
 ) {
 	mediaType := models.MediaTypeLink
 	content := fmt.Sprintf("[Customer shared a %s: %s]", label, contentURL)
+	if caption != "" {
+		content = fmt.Sprintf("[Customer shared a %s: %s]\nCaption: %s", label, contentURL, caption)
+	}
 	s.storeMediaMessage(ctx, tx, platform, conv, cred, &content, &contentURL, &mediaType, true)
 }

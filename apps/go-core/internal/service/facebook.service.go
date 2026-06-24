@@ -301,7 +301,7 @@ func (s *facebookService) fetchPageDetails(ctx context.Context, pageID, pageToke
 // ── inbound message handling ─────────────────────────────────────────
 func (s *facebookService) HandleFacebookInboundMessage(ctx context.Context, platform models.Platform, pageID string, event models.FacebookMessagingEvent) error {
 	s.log.Info("inbound message received", "platform", platform, "page_id", pageID, "sender", event.Sender.ID)
-
+	s.log.Info("raw facebook message", "event", event)
 	cred, err := s.appCredentialRepo.GetByPlatformAccountID(ctx, pageID)
 	if err != nil {
 		s.log.Error("credential lookup failed", "platform_id", pageID, "err", err)
@@ -347,8 +347,6 @@ func (s *facebookService) HandleFacebookInboundMessage(ctx context.Context, plat
 	}
 	s.log.Info("conversation ready", "conversation_id", conv.ID, "business_id", cred.BusinessID)
 
-	// 1) Text — Meta can send text and attachments in the SAME event,
-	//    so this runs independently of the attachment loop below.
 	if event.Message.Text != "" {
 		text := event.Message.Text
 		insertedMsg, err := s.messageRepo.Create(ctx, tx, models.CreateMessage{
@@ -369,7 +367,6 @@ func (s *facebookService) HandleFacebookInboundMessage(ctx context.Context, plat
 		}
 	}
 
-	// 2) Attachments — size-gated, type-aware.
 	for _, attachment := range event.Message.Attachments {
 		switch attachment.Type {
 
@@ -389,8 +386,16 @@ func (s *facebookService) HandleFacebookInboundMessage(ctx context.Context, plat
 				attachment.Payload.URL, models.MediaTypeDocument, "file",
 				"[Customer sent a file that can't be processed automatically]")
 
-		case models.FacebookAttachmentTypeFallback:
-			s.chatService.HandleSharedLink(ctx, tx, platform, conv, &cred, attachment)
+		// Shared content — reels, posts, stories, external links. Meta sends
+		// these with a URL pointing at the content; we store them as links.
+		case models.FacebookAttachmentTypeFallback,
+			models.FacebookAttachmentTypeReel,
+			models.FacebookAttachmentTypePost,
+			models.FacebookAttachmentTypeShare,
+			models.FacebookAttachmentTypeStoryMention,
+			models.FacebookAttachmentTypeURL,
+			models.FacebookAttachmentTypeLink:
+			s.chatService.HandleSharedLink(ctx, tx, platform, conv, &cred, pageToken, attachment)
 
 		default:
 			s.log.Warn("unknown attachment type", "type", attachment.Type)
