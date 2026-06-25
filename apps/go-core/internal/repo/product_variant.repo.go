@@ -25,10 +25,10 @@ func (r *productVariantRepo) Create(ctx context.Context, tx *sqlx.Tx, input mode
 	const q = `
 		INSERT INTO product_variants (
 			product_id, business_id, name, sku, attributes,
-			price, discount, stock_qty, low_stock_threshold, images
+			price, cost_price, discount, stock_qty, low_stock_threshold, images
 		) VALUES (
 			$1, $2, $3, $4, $5,
-			$6, $7, $8, $9, $10
+			$6, $7, $8, $9, $10, $11
 		)
 		RETURNING *`
 
@@ -40,6 +40,7 @@ func (r *productVariantRepo) Create(ctx context.Context, tx *sqlx.Tx, input mode
 		input.SKU,
 		input.Attributes,
 		input.Price,
+		input.CostPrice,
 		input.Discount,
 		input.StockQty,
 		input.LowStockThreshold,

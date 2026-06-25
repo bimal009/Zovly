@@ -63,11 +63,13 @@ func main() {
 	messageEmbedRepo := repository.NewMessageEmbeddingRepo(db)
 	conversationRepo := repository.NewconversationRepo(db)
 	productVariantRepo := repository.NewProductVariantRepo(db)
+	categoryRepo := repository.NewCategoryRepo(db)
 
 	planService := service.NewPlanService(db, rdb, slog, planRepo)
 	businessService := service.NewBusinessService(db, businessRepo, businessMemberRepo, userRepo, slog, appRepo)
 	appService := service.NewAppService(appRepo, slog)
 	productService := service.NewProductService(db, rdb, slog, productRepo, productVariantRepo)
+	categoryService := service.NewCategoryService(rdb, slog, categoryRepo)
 	serviceService := service.NewServiceService(db, rdb, slog, serviceRepo)
 	faqService := service.NewFaqService(faqRepo, knowledgeRepo, slog, db, *cfg)
 	chatService := service.NewChatService(db, messageRepo, appCredentialRepo, messageEmbedRepo, conversationRepo, *cfg, rdb, slog)
@@ -80,6 +82,7 @@ func main() {
 	imagekitService := service.NewImageKitService(cfg)
 	imageHandler := handler.NewImageHandler(imagekitService)
 	productHandler := handler.NewProductHandler(productService)
+	categoryHandler := handler.NewCategoryHandler(categoryService)
 	serviceHandler := handler.NewServiceHandler(serviceService)
 	faqHandler := handler.NewFaqHandler(faqService)
 	facebookHandler := handler.NewFacebookHandler(facebookService, chatService, rdb, cfg, slog)
@@ -107,7 +110,7 @@ func main() {
 	r.Use(limiter.LimitMiddleWare())
 
 	api := r.Group("/api/v1")
-	routes.RegisterAll(api, planHandler, paddleHandler, imageHandler, businessHandler, productHandler, serviceHandler, faqHandler, facebookHandler, instagramHandler, inboxHandler, appHandler, authMiddleware, businessMiddleware)
+	routes.RegisterAll(api, planHandler, paddleHandler, imageHandler, businessHandler, productHandler, categoryHandler, serviceHandler, faqHandler, facebookHandler, instagramHandler, inboxHandler, appHandler, authMiddleware, businessMiddleware)
 	httpServer := &http.Server{
 		Addr:         ":" + cfg.App.Port,
 		Handler:      r,

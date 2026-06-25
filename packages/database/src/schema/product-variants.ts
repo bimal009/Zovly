@@ -33,7 +33,8 @@ export const productVariants = pgTable(
 
     // ── Pricing (cents) ───────────────────────────────────────────────────
     // null price = inherit the parent product's price
-    price: integer("price"), // override; null → use product.price
+    price: integer("price"), // selling price override; null → use product.price
+    costPrice: integer("cost_price"), // what business paid (never shown to customer)
     discount: integer("discount"), // override; null → use product.discount
 
     // ── Inventory ─────────────────────────────────────────────────────────

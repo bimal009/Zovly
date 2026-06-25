@@ -30,6 +30,26 @@ func NewProductRepo(db *sqlx.DB) ProductRepo {
 	return &productRepo{db: db}
 }
 
+// productVariantsAgg aggregates each product's variants into a single JSON
+// column, so the product + its variants come back in one query (no N+1, no
+// app-side grouping loop). Timestamps are reformatted to RFC3339 so they
+// unmarshal cleanly into time.Time. Expects the products table aliased as "p".
+const productVariantsAgg = `
+		COALESCE(
+			(
+				SELECT jsonb_agg(
+					(to_jsonb(v) - 'created_at' - 'updated_at') || jsonb_build_object(
+						'created_at', to_char(v.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+						'updated_at', to_char(v.updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+					)
+					ORDER BY v.created_at ASC
+				)
+				FROM product_variants v
+				WHERE v.product_id = p.id
+			),
+			'[]'::jsonb
+		) AS variants`
+
 // ─── Create ───────────────────────────────────────────────────────────────────
 
 func (r *productRepo) Create(ctx context.Context, tx *sqlx.Tx, input models.CreateProductInput) (*models.Product, error) {
@@ -88,8 +108,9 @@ func (r *productRepo) Create(ctx context.Context, tx *sqlx.Tx, input models.Crea
 func (r *productRepo) GetByID(ctx context.Context, id, businessID string) (*models.Product, error) {
 	var p models.Product
 	err := r.db.GetContext(ctx, &p, `
-		SELECT * FROM products
-		WHERE id = $1 AND business_id = $2
+		SELECT p.*, `+productVariantsAgg+`
+		FROM products p
+		WHERE p.id = $1 AND p.business_id = $2
 	`, id, businessID)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -131,11 +152,12 @@ func (r *productRepo) List(ctx context.Context, businessID string, f ListProduct
 	}
 
 	q := fmt.Sprintf(`
-		SELECT * FROM products
+		SELECT p.*, %s
+		FROM products p
 		WHERE %s
-		ORDER BY created_at DESC
+		ORDER BY p.created_at DESC
 		LIMIT $%d OFFSET $%d`,
-		strings.Join(conds, " AND "), i, i+1,
+		productVariantsAgg, strings.Join(conds, " AND "), i, i+1,
 	)
 	args = append(args, limit, f.Offset)
 

@@ -12,6 +12,7 @@ func RegisterAll(
 	imageHandler *handler.ImageHandler,
 	businessHandler *handler.BusinessHandler,
 	productHandler *handler.ProductHandler,
+	categoryHandler *handler.CategoryHandler,
 	serviceHandler *handler.ServiceHandler,
 	faqHandler *handler.FaqHandler,
 	facebookHandler *handler.FacebookHandler,
@@ -63,6 +64,14 @@ func RegisterAll(
 		products.GET("/:id", productHandler.GetByID)
 		products.PATCH("/:id", productHandler.Update)
 		products.DELETE("/:id", productHandler.Delete)
+	}
+
+	categories := api.Group("/categories")
+	categories.Use(authMiddleware, businessMiddleware)
+	{
+		categories.POST("", categoryHandler.Create)
+		categories.GET("", categoryHandler.GetAll)
+		categories.GET("/:id", categoryHandler.Get)
 	}
 
 	services := api.Group("/services")

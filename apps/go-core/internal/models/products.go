@@ -40,8 +40,9 @@ type Product struct {
 	LowStockThreshold *int `db:"low_stock_threshold" json:"low_stock_threshold,omitempty"`
 
 	// Media
-	Images   pq.StringArray   `db:"images" json:"images"`
-	Variants []ProductVariant `db:"-" json:"variants,omitempty"`
+	Images pq.StringArray `db:"images" json:"images"`
+	// Populated via jsonb_agg in the products query (single round trip).
+	Variants ProductVariants `db:"variants" json:"variants,omitempty"`
 
 	CreatedAt time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt time.Time `db:"updated_at" json:"updated_at"`

@@ -3,10 +3,39 @@ package models
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/lib/pq"
 )
+
+// ProductVariants is a slice of variants that can be scanned directly from a
+// JSON/JSONB column — lets the products query LEFT JOIN + jsonb_agg the
+// variants in a single round trip instead of a second query.
+type ProductVariants []ProductVariant
+
+func (vs *ProductVariants) Scan(src any) error {
+	if src == nil {
+		*vs = nil
+		return nil
+	}
+
+	var data []byte
+	switch s := src.(type) {
+	case []byte:
+		data = s
+	case string:
+		data = []byte(s)
+	default:
+		return fmt.Errorf("ProductVariants.Scan: unsupported type %T", src)
+	}
+
+	if len(data) == 0 {
+		*vs = nil
+		return nil
+	}
+	return json.Unmarshal(data, (*[]ProductVariant)(vs))
+}
 
 // ─── Core model ──────────────────────────────────────────────────────────────
 
@@ -23,8 +52,9 @@ type ProductVariant struct {
 	Attributes json.RawMessage `db:"attributes" json:"attributes,omitempty"`
 
 	// Pricing (cents) — null means inherit the parent product's value
-	Price    *int `db:"price"    json:"price,omitempty"`
-	Discount *int `db:"discount" json:"discount,omitempty"`
+	Price     *int `db:"price"      json:"price,omitempty"`
+	CostPrice *int `db:"cost_price" json:"cost_price,omitempty"` // never exposed to customer
+	Discount  *int `db:"discount"   json:"discount,omitempty"`
 
 	// Inventory
 	StockQty          int  `db:"stock_qty"           json:"stock_qty"`
@@ -48,8 +78,9 @@ type CreateProductVariantInput struct {
 
 	Attributes json.RawMessage `json:"attributes"`
 
-	Price    *int `json:"price"    validate:"omitempty,gt=0"`
-	Discount *int `json:"discount" validate:"omitempty,min=0,max=100"`
+	Price     *int `json:"price"      validate:"omitempty,gt=0"`
+	CostPrice *int `json:"cost_price" validate:"omitempty,gt=0"`
+	Discount  *int `json:"discount"   validate:"omitempty,min=0,max=100"`
 
 	StockQty          int  `json:"stock_qty"           validate:"min=0"`
 	LowStockThreshold *int `json:"low_stock_threshold" validate:"omitempty,min=0"`
@@ -66,8 +97,9 @@ type UpdateProductVariantInput struct {
 
 	Attributes json.RawMessage `json:"attributes"`
 
-	Price    *int `json:"price"    validate:"omitempty,gt=0"`
-	Discount *int `json:"discount" validate:"omitempty,min=0,max=100"`
+	Price     *int `json:"price"      validate:"omitempty,gt=0"`
+	CostPrice *int `json:"cost_price" validate:"omitempty,gt=0"`
+	Discount  *int `json:"discount"   validate:"omitempty,min=0,max=100"`
 
 	StockQty          *int `json:"stock_qty"           validate:"omitempty,min=0"`
 	LowStockThreshold *int `json:"low_stock_threshold" validate:"omitempty,min=0"`

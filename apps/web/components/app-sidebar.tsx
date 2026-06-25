@@ -21,6 +21,7 @@ import {
   IconNotification,
   IconPackage,
   IconPhoto,
+  IconTags,
   IconSettings,
   IconSpeakerphone,
   IconTools,
@@ -174,6 +175,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
     { title: "Campaigns", url: `/${id}/campaigns`, icon: IconSpeakerphone },
     { title: "Bookings", url: `/${id}/bookings`, icon: IconCalendar },
     { title: "Products", url: `/${id}/products`, icon: IconPackage },
+    { title: "Categories", url: `/${id}/categories`, icon: IconTags },
     { title: "Services", url: `/${id}/services`, icon: IconTools },
     { title: "Business Info", url: `/${id}/business-info`, icon: IconBuilding },
   ];
