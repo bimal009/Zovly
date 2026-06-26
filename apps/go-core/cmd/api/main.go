@@ -94,6 +94,7 @@ func main() {
 
 	authMiddleware := middlewares.RequireAuth(sessionRepo)
 	businessMiddleware := middlewares.RequireBusiness(businessService, memberInviteRepo)
+	internalMiddleware := middlewares.RequireInternal(cfg.App.InternalCallsToken)
 	if cfg.App.Env == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
@@ -112,7 +113,7 @@ func main() {
 	r.Use(limiter.LimitMiddleWare())
 
 	api := r.Group("/api/v1")
-	routes.RegisterAll(api, planHandler, paddleHandler, imageHandler, businessHandler, productHandler, categoryHandler, serviceHandler, faqHandler, facebookHandler, instagramHandler, inboxHandler, appHandler, authMiddleware, businessMiddleware)
+	routes.RegisterAll(api, planHandler, paddleHandler, imageHandler, businessHandler, productHandler, categoryHandler, serviceHandler, faqHandler, facebookHandler, instagramHandler, inboxHandler, appHandler, authMiddleware, businessMiddleware, internalMiddleware)
 	httpServer := &http.Server{
 		Addr:         ":" + cfg.App.Port,
 		Handler:      r,

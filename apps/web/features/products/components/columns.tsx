@@ -64,11 +64,6 @@ export function getProductColumns({
             )}
             <div>
               <p className="font-medium leading-snug">{p.name}</p>
-              {p.description && (
-                <p className="hidden lg:block text-xs text-muted-foreground line-clamp-1">
-                  {p.description}
-                </p>
-              )}
             </div>
           </div>
         );
@@ -120,8 +115,7 @@ export function getProductColumns({
       cell: ({ row }) => {
         const p = row.original;
         const isLow =
-          p.low_stock_threshold != null &&
-          p.stock_qty <= p.low_stock_threshold;
+          p.low_stock_threshold != null && p.stock_qty <= p.low_stock_threshold;
         return (
           <div className="flex items-center gap-1.5">
             {isLow && (
@@ -133,6 +127,20 @@ export function getProductColumns({
               {p.stock_qty} units
             </span>
           </div>
+        );
+      },
+    },
+    {
+      id: "variants",
+      header: "Variants",
+      cell: ({ row }) => {
+        const count = row.original.variants?.length ?? 0;
+        return count > 0 ? (
+          <Badge variant="secondary" className="tabular-nums">
+            {count}
+          </Badge>
+        ) : (
+          <span className="text-sm text-muted-foreground">—</span>
         );
       },
     },

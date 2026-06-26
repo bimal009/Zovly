@@ -310,7 +310,7 @@ func (w *AIWorker) callChatReply(
 
 func (w *AIWorker) searchKnowledge(ctx context.Context, businessID string, vec pgvector.Vector, k int) ([]models.KnowledgeChunk, error) {
 	query := `
-		SELECT content, source_type, 1 - (embedding <=> $1) AS score
+		SELECT content, source_type, source_id, 1 - (embedding <=> $1) AS score
 		FROM knowledge_chunks
 		WHERE business_id = $2
 		ORDER BY embedding <=> $1
@@ -321,9 +321,14 @@ func (w *AIWorker) searchKnowledge(ctx context.Context, businessID string, vec p
 		return nil, err
 	}
 
+	for _, r := range results {
+		w.log.Info("knowledge candidate", "score", r.Score, "type", r.SourceType,
+			"content", r.Content[:min(50, len(r.Content))])
+	}
+
 	filtered := make([]models.KnowledgeChunk, 0, len(results))
 	for _, r := range results {
-		if r.Score >= 0.80 {
+		if r.Score >= 0.74 {
 			filtered = append(filtered, r)
 		}
 	}
@@ -411,7 +416,7 @@ func (w *AIWorker) trySend(
 		w.rdb.Decr(ctx, rateLimitKey)
 		return fmt.Errorf("chat reply: %w", err) // not acked → retried
 	}
-	w.log.Info("AI reply received", "conversation_id", conversationID, "reply_len", len(reply))
+	w.log.Info("AI reply received", "conversation_id", conversationID, "reply_len", len(reply), "msg", reply)
 
 	pending := models.MessageStatusPending
 	aiSender := models.MessageSenderAI

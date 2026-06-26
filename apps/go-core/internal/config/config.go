@@ -16,6 +16,8 @@ type App struct {
 	AIServiceURL  string   `env:"AI_SERVICE_URL" envDefault:"http://localhost:8000"`
 	EncryptionKey string   `env:"ENCRYPTION_KEY"`
 	DeepgramKey   string   `env:"DEEPGRAM_API_KEY"`
+	// Shared secret for service-to-service calls on the /internal routes.
+	InternalCallsToken string `env:"INTERNAL_CALLS_TOKEN"`
 }
 
 type DB struct {

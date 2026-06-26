@@ -6,8 +6,11 @@ import tempfile
 from dotenv import load_dotenv
 import requests
 from langchain_openai import ChatOpenAI
+from langchain.agents import create_agent
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from app.models.chat import ChatReqModel, ChatImageRequest, ChatAudioRequest
+from app.core.tools.product import get_category_product_count, BusinessContext
+from app.core.tools.category import get_categories
 from faster_whisper import WhisperModel
 
 load_dotenv()
@@ -16,16 +19,20 @@ whisper_model = WhisperModel("turbo", device="cpu", compute_type="int8")
 
 logger = logging.getLogger(__name__)
 
-# Conversational model — some warmth is good for the sales assistant.
 model = ChatOpenAI(
-    model="openai/gpt-oss-120b:free",
+    model="openai/gpt-4o-mini",
     openai_api_key=os.getenv("OPENROUTER_API_KEY"),
     openai_api_base="https://openrouter.ai/api/v1",
     timeout=30,
 )
 
-# Deterministic model for analysis tasks (image description) — temperature 0
-# so the same image yields a stable description, capped short.
+agent = create_agent(
+    model,
+    tools=[get_category_product_count, get_categories],
+    context_schema=BusinessContext,
+)
+
+
 analysis_model = ChatOpenAI(
     model="openai/gpt-4o-mini",
     openai_api_key=os.getenv("OPENROUTER_API_KEY"),
@@ -77,6 +84,13 @@ class ChatService:
                 "Romanized Nepali — NOT Devanagari. If Devanagari, reply in Devanagari. If English, reply in English.\n"
                 "- Mirror their script precisely; never switch scripts or languages mid-conversation.\n\n"
 
+                "TOOLS:\n"
+                "- get_categories: list the business's product categories (name + slug). Use it to see what "
+                "categories exist, e.g. before counting products in one.\n"
+                "- get_category_product_count: look up how many products the business has, optionally narrowed "
+                "to a category (pass its slug). Use it when a customer asks how many products / catalogue size.\n"
+                "- Never ask the customer for the business ID — it is supplied automatically.\n\n"
+
                 "FORMATTING:\n"
                 "- Reply in plain text only. No markdown, asterisks, bullets, bold, italics, or special formatting.\n"
                 "- Write naturally, as you would in a normal chat message.\n"
@@ -119,7 +133,6 @@ class ChatService:
 
         messages.append(SystemMessage(content=system))
 
-        # conversation history as alternating turns (already chronological from Go)
         for m in ctx.past_conversation:
             if not m.content:
                 continue
@@ -132,16 +145,35 @@ class ChatService:
         messages.append(HumanMessage(content=req.message))
 
         try:
-            response = model.invoke(messages)
-            text = response.content or "Sorry, I couldn't generate a reply right now."
+            result = agent.invoke(
+                {"messages": messages},
+                context=BusinessContext(business_id=req.business_id),
+            )
+            print("\n" + "=" * 80)
+            print("AGENT MESSAGES")
+            print("=" * 80)
+
+            for i, msg in enumerate(result["messages"], 1):
+                print(f"\n--- Message {i} ({type(msg).__name__}) ---")
+
+                if hasattr(msg, "content"):
+                    print("Content:")
+                    print(msg.content)
+
+                if hasattr(msg, "tool_calls") and msg.tool_calls:
+                    print("\nTool Calls:")
+                    for tc in msg.tool_calls:
+                        print(tc)
+
+            print("=" * 80)
+            text = result["messages"][-1].content or "Sorry, I couldn't generate a reply right now."
             return _strip_markdown(text)
         except Exception:
             logger.exception("handle_with_context failed")
             return "I'm having trouble right now. A team member will get back to you shortly."
 
     def handle_images(self, req: ChatImageRequest) -> str:
-        # NOTE: adjust `req.image_url` to match the actual field name on your
-        # ChatImageRequest model (could be req.url, req.image, etc.)
+      
         image_url = req.url
         if not image_url:
             return "No image was provided to analyze."

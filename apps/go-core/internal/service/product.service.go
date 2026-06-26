@@ -17,14 +17,13 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// ErrProductNotFound is returned when a product does not exist for the business.
-// Handlers map it to a 404 "product not found" response.
 var ErrProductNotFound = errors.New("product not found")
 
 type ProductService interface {
 	Create(ctx context.Context, input models.CreateProductInput) (*models.Product, error)
 	GetByID(ctx context.Context, id, businessID string) (*models.Product, error)
 	List(ctx context.Context, businessID string, f repository.ListProductsFilter) ([]models.Product, error)
+	Count(ctx context.Context, businessID, categorySlug string) (int, error)
 	Update(ctx context.Context, id, businessID string, input models.UpdateProductInput) (*models.Product, error)
 	Delete(ctx context.Context, id, businessID string) error
 	AdjustStock(ctx context.Context, tx sqlx.ExtContext, id, businessID string, delta int) (*models.Product, error)
@@ -131,7 +130,7 @@ func (s *productService) Create(ctx context.Context, input models.CreateProductI
 	}
 	knowledgePassage := buildProductKnowledgePassage(input.Name, input.Description, input.Tags, input.Attributes, variantNames)
 
-	embedChunks, err := s.embedder.EmbedFaq(ctx, knowledgePassage, "passage")
+	embedChunks, err := s.embedder.Embed(ctx, knowledgePassage, "passage")
 	if err != nil {
 		s.logger.Error("product embed failed", "name", input.Name, "error", err)
 		return nil, fmt.Errorf("embed product: %w", err)
@@ -254,11 +253,18 @@ func (s *productService) List(ctx context.Context, businessID string, f reposito
 	return products, nil
 }
 
+func (s *productService) Count(ctx context.Context, businessID, categorySlug string) (int, error) {
+	count, err := s.productRepo.Count(ctx, businessID, categorySlug)
+	if err != nil {
+		s.logger.Error("product count failed", "business_id", businessID, "category_slug", categorySlug, "error", err)
+		return 0, err
+	}
+	return count, nil
+}
+
 func (s *productService) Update(ctx context.Context, id, businessID string, input models.UpdateProductInput) (*models.Product, error) {
 	s.logger.Info("product update", "id", id, "business_id", businessID)
 
-	// load current state — needed to 404 early and to build the new passage
-	// from the *merged* (current + input) values, since input is partial.
 	current, err := s.productRepo.GetByID(ctx, id, businessID)
 	if err != nil {
 		s.logger.Error("product update load failed", "id", id, "business_id", businessID, "error", err)
@@ -291,7 +297,7 @@ func (s *productService) Update(ctx context.Context, id, businessID string, inpu
 
 	knowledgePassage := buildProductKnowledgePassage(name, description, tags, attributes, variantNames)
 
-	embedChunks, err := s.embedder.EmbedFaq(ctx, knowledgePassage, "passage")
+	embedChunks, err := s.embedder.Embed(ctx, knowledgePassage, "passage")
 	if err != nil {
 		s.logger.Error("product embed failed", "id", id, "error", err)
 		return nil, fmt.Errorf("embed product: %w", err)
@@ -308,7 +314,6 @@ func (s *productService) Update(ctx context.Context, id, businessID string, inpu
 	}
 	defer tx.Rollback()
 
-	// 1. product row
 	if err := s.productRepo.Update(ctx, tx, id, businessID, input); err != nil {
 		s.logger.Error("product update failed", "id", id, "business_id", businessID, "error", err)
 		return nil, err

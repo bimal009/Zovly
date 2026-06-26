@@ -25,14 +25,14 @@ type CreateKnowledgeChunk struct {
 	Metadata   json.RawMessage     `db:"metadata"`
 }
 
-type FaqChunksResponse struct {
+type EmbeddedChunk struct {
 	ChunkIndex int       `json:"chunk_index"`
 	Content    string    `json:"content"`
 	Embedding  []float32 `json:"embedding"`
 }
 
 func ToChunkInserts(
-	chunks []FaqChunksResponse,
+	chunks []EmbeddedChunk,
 	businessID, sourceID string,
 	sourceType KnowledgeSourceType,
 	metadata json.RawMessage,

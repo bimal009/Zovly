@@ -211,19 +211,10 @@ func facebookAttachmentLabel(t models.FacebookAttachmentType) string {
 	}
 }
 
-// fbObjectIDPattern pulls the numeric object id out of a shared Facebook URL.
-// Covers /reel/{id}, /posts/{id}, /permalink/{id}, ?story_fbid={id}, ?fbid={id}.
 var fbObjectIDPattern = regexp.MustCompile(`(?:reel/|posts/|permalink/|videos/|story_fbid=|fbid=|/)(\d{6,})`)
 
-// fbPfbidPattern captures the opaque pfbid token from a privacy-wrapped post URL.
 var fbPfbidPattern = regexp.MustCompile(`(pfbid[0-9A-Za-z]+)`)
 
-// fetchFacebookObjectDetails resolves a shared Facebook URL to its post details
-// via the Graph API. A numeric id (reels, permalinks, photos) addresses the
-// object directly; a pfbid post is addressed as the page-scoped composite id
-// {page-id}_{pfbid}, which only resolves when the page token can read it (i.e.
-// the customer shared this page's own post). Anything else returns an error and
-// the caller stores the raw link.
 func (s *chatService) fetchFacebookObjectDetails(ctx context.Context, sharedURL, pageID, pageToken string) (*models.FacebookObjectDetails, error) {
 	if pageToken == "" {
 		return nil, fmt.Errorf("missing page token")

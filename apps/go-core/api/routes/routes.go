@@ -21,11 +21,9 @@ func RegisterAll(
 	appHandler *handler.AppHandler,
 	authMiddleware gin.HandlerFunc,
 	businessMiddleware gin.HandlerFunc,
+	internalMiddleware gin.HandlerFunc,
 
 ) {
-	// Public webhook endpoints — no auth middleware (called by Meta servers).
-	// Facebook and Instagram are separate routes, each verified with its own
-	// app secret (META_APP_SECRET vs IG_APP_SECRET).
 	webhook := api.Group("/webhook/meta")
 	{
 		webhook.GET("/facebook", facebookHandler.VerifyWebhook)
@@ -66,6 +64,13 @@ func RegisterAll(
 		products.DELETE("/:id", productHandler.Delete)
 	}
 
+	internal := api.Group("/internal")
+	internal.Use(internalMiddleware)
+	{
+		internal.GET("/products/count", productHandler.Count)
+		internal.GET("/categories", categoryHandler.GetAllInternal)
+	}
+
 	categories := api.Group("/categories")
 	categories.Use(authMiddleware, businessMiddleware)
 	{
@@ -85,7 +90,6 @@ func RegisterAll(
 		services.DELETE("/:id", serviceHandler.Delete)
 	}
 
-	// ── faqs ──────────────────────────────────────────────────────────────
 	faqs := api.Group("/faqs")
 	faqs.Use(authMiddleware, businessMiddleware)
 	{

@@ -27,8 +27,6 @@ func New(baseURL string) *Client {
 	}
 }
 
-// EmbedChat returns the embedding vector for a single chat message. kind selects
-// the embedding variant the AI service should use ("query", "passage", ...).
 func (c *Client) EmbedChat(ctx context.Context, message, kind string) (pgvector.Vector, error) {
 	body, err := json.Marshal(map[string]string{"message": message, "kind": kind})
 	if err != nil {
@@ -55,7 +53,7 @@ func (c *Client) EmbedChat(ctx context.Context, message, kind string) (pgvector.
 	return pgvector.NewVector(result.Embeddings[0].Embedding), nil
 }
 
-func (c *Client) EmbedFaq(ctx context.Context, question, answer string) ([]models.FaqChunksResponse, error) {
+func (c *Client) EmbedFaq(ctx context.Context, question, answer string) ([]models.EmbeddedChunk, error) {
 	body, err := json.Marshal(map[string]string{"question": question, "answer": answer})
 	if err != nil {
 		return nil, fmt.Errorf("marshal embed request: %w", err)
@@ -71,7 +69,7 @@ func (c *Client) EmbedFaq(ctx context.Context, question, answer string) ([]model
 		return nil, fmt.Errorf("embed service returned status %d", resp.StatusCode)
 	}
 
-	var result []models.FaqChunksResponse
+	var result []models.EmbeddedChunk
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("decode embed response: %w", err)
 	}
@@ -90,4 +88,27 @@ func (c *Client) post(ctx context.Context, path string, body []byte) (*http.Resp
 		return nil, fmt.Errorf("call embed service: %w", err)
 	}
 	return resp, nil
+}
+
+func (c *Client) Embed(ctx context.Context, text, kind string) ([]models.EmbeddedChunk, error) {
+	body, err := json.Marshal(map[string]string{"text": text, "kind": kind})
+	if err != nil {
+		return nil, fmt.Errorf("marshal embed request: %w", err)
+	}
+
+	resp, err := c.post(ctx, "/api/v1/ml/embed", body)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("embed service returned status %d", resp.StatusCode)
+	}
+
+	var result []models.EmbeddedChunk
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode embed response: %w", err)
+	}
+	return result, nil
 }

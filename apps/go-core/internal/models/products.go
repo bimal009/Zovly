@@ -16,8 +16,6 @@ const (
 	ProductStatusArchived ProductStatus = "archived"
 )
 
-// ─── Core model ──────────────────────────────────────────────────────────────
-
 type Product struct {
 	ID         string  `db:"id"          json:"id"`
 	BusinessID string  `db:"business_id" json:"business_id"`
@@ -30,39 +28,32 @@ type Product struct {
 	Status      ProductStatus  `db:"status"      json:"status"`
 	Tags        pq.StringArray `db:"tags"        json:"tags"`
 
-	// structured product-level attributes — { "material": "cotton", "fit": "slim" }
 	Attributes json.RawMessage `db:"attributes" json:"attributes,omitempty"`
 
-	// Pricing (cents)
 	Price     int    `db:"price"      json:"price"`
 	CostPrice *int   `db:"cost_price" json:"cost_price,omitempty"` // never exposed to customer
 	Discount  int    `db:"discount"   json:"discount"`             // percentage 0-100
 	Currency  string `db:"currency"   json:"currency"`
 
-	// Inventory
 	StockQty          int  `db:"stock_qty"           json:"stock_qty"`
 	LowStockThreshold *int `db:"low_stock_threshold" json:"low_stock_threshold,omitempty"`
 
-	// Media
-	Images pq.StringArray `db:"images" json:"images"`
-	// Populated via jsonb_agg in the products query (single round trip).
+	Images   pq.StringArray  `db:"images" json:"images"`
 	Variants ProductVariants `db:"variants" json:"variants,omitempty"`
 
 	CreatedAt time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt time.Time `db:"updated_at" json:"updated_at"`
 }
 
-// ─── Create ───────────────────────────────────────────────────────────────────
-
 type CreateProductInput struct {
 	BusinessID string  `json:"business_id" validate:"required,uuid"`
 	CategoryID *string `json:"category_id" validate:"omitempty,uuid"`
 
 	Name        string        `json:"name"        validate:"required,min=1,max=255"`
-	Description *string       `json:"description"`
+	Description *string       `json:"description" validate:"omitempty,max=200"`
 	SKU         *string       `json:"sku"`
 	Status      ProductStatus `json:"status"      validate:"omitempty,oneof=active inactive archived"`
-	Tags        []string      `json:"tags"        validate:"omitempty,dive,min=1"`
+	Tags        []string      `json:"tags"        validate:"omitempty,max=5,dive,min=1"`
 
 	Attributes json.RawMessage `json:"attributes"`
 
@@ -74,21 +65,18 @@ type CreateProductInput struct {
 	StockQty          int  `json:"stock_qty"           validate:"min=0"`
 	LowStockThreshold *int `json:"low_stock_threshold" validate:"omitempty,min=0"`
 
-	Images []string `json:"images" validate:"omitempty,dive,url"`
+	Images []string `json:"images" validate:"omitempty,max=4,dive,url"`
 
 	Variants []CreateProductVariantInput `json:"variants" validate:"omitempty,dive"`
 }
 
-// ─── Update ───────────────────────────────────────────────────────────────────
-// All fields are pointers — only non-nil fields are written to DB
-
 type UpdateProductInput struct {
 	CategoryID  *string        `json:"category_id" validate:"omitempty,uuid"`
 	Name        *string        `json:"name"        validate:"omitempty,min=1,max=255"`
-	Description *string        `json:"description"`
+	Description *string        `json:"description" validate:"omitempty,max=200"`
 	SKU         *string        `json:"sku"`
 	Status      *ProductStatus `json:"status"      validate:"omitempty,oneof=active inactive archived"`
-	Tags        []string       `json:"tags"        validate:"omitempty,dive,min=1"`
+	Tags        []string       `json:"tags"        validate:"omitempty,max=5,dive,min=1"`
 
 	Attributes json.RawMessage `json:"attributes"`
 
@@ -100,8 +88,7 @@ type UpdateProductInput struct {
 	StockQty          *int `json:"stock_qty"           validate:"omitempty,min=0"`
 	LowStockThreshold *int `json:"low_stock_threshold" validate:"omitempty,min=0"`
 
-	Images []string `json:"images" validate:"omitempty,dive,url"`
+	Images []string `json:"images" validate:"omitempty,max=4,dive,url"`
 
-	// Variants, when provided, fully replace the product's existing variants.
 	Variants []CreateProductVariantInput `json:"variants" validate:"omitempty,dive"`
 }

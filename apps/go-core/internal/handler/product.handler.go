@@ -129,7 +129,23 @@ func (h *ProductHandler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, responses.Paginated("products fetched successfully", products, len(products), limit, offset))
 }
 
-// ─── Update ───────────────────────────────────────────────────────────────────
+func (h *ProductHandler) Count(c *gin.Context) {
+	businessID := c.Query("businessID")
+	if businessID == "" {
+		c.JSON(http.StatusBadRequest, responses.BadRequest("businessID is required"))
+		return
+	}
+
+	categorySlug := c.Query("categorySlug")
+
+	count, err := h.productService.Count(c.Request.Context(), businessID, categorySlug)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, responses.InternalServerError(err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, responses.Success("product count fetched successfully", gin.H{"count": count}))
+}
 
 func (h *ProductHandler) Update(c *gin.Context) {
 	businessID, ok := businessIDFromCtx(c)

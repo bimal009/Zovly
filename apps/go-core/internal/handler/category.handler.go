@@ -77,3 +77,19 @@ func (h *CategoryHandler) GetAll(c *gin.Context) {
 
 	c.JSON(http.StatusOK, responses.Success("categories fetched successfully", categories))
 }
+
+func (h *CategoryHandler) GetAllInternal(c *gin.Context) {
+	businessID := c.Query("businessID")
+	if businessID == "" {
+		c.JSON(http.StatusBadRequest, responses.BadRequest("businessID is required"))
+		return
+	}
+
+	categories, err := h.categoryService.GetAll(c.Request.Context(), businessID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, responses.InternalServerError(err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, responses.Success("categories fetched successfully", categories))
+}

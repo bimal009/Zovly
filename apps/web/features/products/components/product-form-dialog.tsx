@@ -51,6 +51,10 @@ import {
 const optionalNonNeg = z.coerce.number().nonnegative().optional();
 const optionalNonNegInt = z.coerce.number().int().nonnegative().optional();
 
+const DESCRIPTION_MAX = 200;
+const MAX_TAGS = 5;
+const MAX_IMAGES = 4;
+
 // An attribute/option, e.g. { key: "size", values: ["S", "M", "L"] }
 const VariantAttributeSchema = z.object({
   key: z.string(),
@@ -69,12 +73,11 @@ const VariantSchema = z.object({
   stock_qty: z.coerce.number().int().min(0),
   low_stock_threshold: optionalNonNegInt,
   attributes: z.array(VariantAttributeSchema),
+  images: z.array(z.string()).max(MAX_IMAGES, `Up to ${MAX_IMAGES} images`),
 });
 
 // "" means "no category"
 const NO_CATEGORY = "";
-
-const DESCRIPTION_MAX = 200;
 
 const ProductFormSchema = z.object({
   category_id: z.string(),
@@ -84,7 +87,7 @@ const ProductFormSchema = z.object({
     .max(DESCRIPTION_MAX, `Must be ${DESCRIPTION_MAX} characters or less`),
   sku: z.string(),
   status: ProductStatusSchema,
-  tags: z.array(z.string()),
+  tags: z.array(z.string()).max(MAX_TAGS, `Up to ${MAX_TAGS} tags`),
   attributes: z.array(VariantAttributeSchema),
   price: z.coerce.number().positive("Must be > 0"),
   cost_price: optionalNonNeg,
@@ -92,7 +95,7 @@ const ProductFormSchema = z.object({
   currency: z.string(),
   stock_qty: z.coerce.number().int().min(0),
   low_stock_threshold: optionalNonNegInt,
-  images: z.array(z.string()),
+  images: z.array(z.string()).max(MAX_IMAGES, `Up to ${MAX_IMAGES} images`),
   variants: z.array(VariantSchema),
 });
 
@@ -108,6 +111,7 @@ const EMPTY_VARIANT: VariantFormValues = {
   stock_qty: 0,
   low_stock_threshold: undefined,
   attributes: [],
+  images: [],
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -156,6 +160,7 @@ function variantToFormValues(v: ProductVariant): VariantFormValues {
     stock_qty: v.stock_qty,
     low_stock_threshold: v.low_stock_threshold ?? undefined,
     attributes,
+    images: v.images ?? [],
   };
 }
 
@@ -207,6 +212,7 @@ function buildVariantInput(v: VariantFormValues): CreateProductVariantInput {
     stock_qty: v.stock_qty,
     low_stock_threshold: v.low_stock_threshold,
     attributes: buildAttributes(v.attributes),
+    images: v.images.length ? v.images : undefined,
   };
 }
 
@@ -432,9 +438,15 @@ export function ProductFormDialog({
                         onChange={field.onChange}
                         placeholder="Type a tag, press Enter or comma"
                         ariaLabel="Product tags"
+                        max={MAX_TAGS}
                       />
                     )}
                   />
+                  {errors.tags && (
+                    <p className="text-xs text-destructive">
+                      {errors.tags.message}
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
@@ -548,13 +560,24 @@ export function ProductFormDialog({
 
             {/* Images */}
             <div className="flex flex-col gap-3">
-              <p className="text-sm font-semibold">Images</p>
+              <div>
+                <p className="text-sm font-semibold">Images</p>
+                <p className="text-xs text-muted-foreground">
+                  Up to {MAX_IMAGES} images.
+                </p>
+              </div>
               <ImageUploader
                 key={editing?.id ?? "new"}
                 folder="/products"
+                maxImages={MAX_IMAGES}
                 initialUrls={editing?.images ?? []}
                 onUploadsChange={handleImagesChange}
               />
+              {errors.images && (
+                <p className="text-xs text-destructive">
+                  {errors.images.message}
+                </p>
+              )}
             </div>
 
             <Separator />
@@ -644,10 +667,19 @@ interface TagInputProps {
   onChange: (next: string[]) => void;
   placeholder?: string;
   ariaLabel?: string;
+  /** Optional cap on the number of tags. */
+  max?: number;
 }
 
-function TagInput({ value, onChange, placeholder, ariaLabel }: TagInputProps) {
+function TagInput({
+  value,
+  onChange,
+  placeholder,
+  ariaLabel,
+  max,
+}: TagInputProps) {
   const [draft, setDraft] = React.useState("");
+  const isFull = max != null && value.length >= max;
 
   function commit() {
     const parts = draft
@@ -657,6 +689,7 @@ function TagInput({ value, onChange, placeholder, ariaLabel }: TagInputProps) {
     if (parts.length) {
       const next = [...value];
       for (const p of parts) {
+        if (max != null && next.length >= max) break;
         if (!next.includes(p)) next.push(p);
       }
       onChange(next);
@@ -682,6 +715,7 @@ function TagInput({ value, onChange, placeholder, ariaLabel }: TagInputProps) {
       <input
         value={draft}
         aria-label={ariaLabel}
+        disabled={isFull}
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === ",") {
@@ -692,8 +726,10 @@ function TagInput({ value, onChange, placeholder, ariaLabel }: TagInputProps) {
           }
         }}
         onBlur={commit}
-        placeholder={value.length ? "" : placeholder}
-        className="min-w-[100px] flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+        placeholder={
+          isFull ? `Max ${max} reached` : value.length ? "" : placeholder
+        }
+        className="min-w-[100px] flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
       />
     </div>
   );
@@ -725,7 +761,7 @@ function ProductAttributesEditor({
           <Input
             placeholder="Attribute name (e.g. material)"
             aria-label={`Attribute name ${ai + 1}`}
-            className="sm:w-40 sm:shrink-0"
+            className="sm:w-56 sm:shrink-0"
             {...register(`attributes.${ai}.key`)}
           />
           <div className="flex flex-1 items-start gap-2">
@@ -904,7 +940,7 @@ function VariantRow({
             <Input
               placeholder="Option name (e.g. size)"
               aria-label={`Option name ${ai + 1}`}
-              className="sm:w-40 sm:shrink-0"
+              className="sm:w-56 sm:shrink-0"
               {...register(`variants.${index}.attributes.${ai}.key`)}
             />
             <div className="flex flex-1 items-start gap-2">
@@ -943,6 +979,23 @@ function VariantRow({
           <Plus className="size-4" aria-hidden="true" />
           Add Option
         </Button>
+      </div>
+
+      {/* Images */}
+      <div className="flex flex-col gap-2">
+        <Label className="text-xs text-muted-foreground">Images</Label>
+        <Controller
+          control={control}
+          name={`variants.${index}.images`}
+          render={({ field }) => (
+            <ImageUploader
+              folder="/products"
+              maxImages={MAX_IMAGES}
+              initialUrls={field.value}
+              onUploadsChange={field.onChange}
+            />
+          )}
+        />
       </div>
     </div>
   );

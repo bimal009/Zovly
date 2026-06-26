@@ -31,7 +31,7 @@ type MessageEmbeddingResponse struct {
 }
 
 type ChatEmbedResponse struct {
-	Embeddings []FaqChunksResponse `json:"embeddings"`
+	Embeddings []EmbeddedChunk `json:"embeddings"`
 }
 
 type PastChatChunk struct {
@@ -43,5 +43,6 @@ type PastChatChunk struct {
 type KnowledgeChunk struct {
 	Content    string  `db:"content" json:"content"`
 	SourceType string  `db:"source_type" json:"source_type"`
+	SourceID   string  `db:"source_id" json:"source_id"`
 	Score      float64 `db:"score" json:"score"`
 }

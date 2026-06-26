@@ -15,7 +15,9 @@ import (
 type ProductRepo interface {
 	Create(ctx context.Context, tx *sqlx.Tx, input models.CreateProductInput) (*models.Product, error)
 	GetByID(ctx context.Context, id, businessID string) (*models.Product, error)
+	GetByCategorySlug(ctx context.Context, slug, businessID string) ([]models.Product, error)
 	List(ctx context.Context, businessID string, f ListProductsFilter) ([]models.Product, error)
+	Count(ctx context.Context, businessID, categorySlug string) (int, error)
 	Update(ctx context.Context, tx *sqlx.Tx, id, businessID string, input models.UpdateProductInput) error
 	Delete(ctx context.Context, id, businessID string) error
 	AdjustStock(ctx context.Context, tx sqlx.ExtContext, id, businessID string, delta int) (*models.Product, error)
@@ -29,26 +31,6 @@ type productRepo struct {
 func NewProductRepo(db *sqlx.DB) ProductRepo {
 	return &productRepo{db: db}
 }
-
-// productVariantsAgg aggregates each product's variants into a single JSON
-// column, so the product + its variants come back in one query (no N+1, no
-// app-side grouping loop). Timestamps are reformatted to RFC3339 so they
-// unmarshal cleanly into time.Time. Expects the products table aliased as "p".
-const productVariantsAgg = `
-		COALESCE(
-			(
-				SELECT jsonb_agg(
-					(to_jsonb(v) - 'created_at' - 'updated_at') || jsonb_build_object(
-						'created_at', to_char(v.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
-						'updated_at', to_char(v.updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
-					)
-					ORDER BY v.created_at ASC
-				)
-				FROM product_variants v
-				WHERE v.product_id = p.id
-			),
-			'[]'::jsonb
-		) AS variants`
 
 // ─── Create ───────────────────────────────────────────────────────────────────
 
@@ -110,9 +92,16 @@ func (r *productRepo) Create(ctx context.Context, tx *sqlx.Tx, input models.Crea
 func (r *productRepo) GetByID(ctx context.Context, id, businessID string) (*models.Product, error) {
 	var p models.Product
 	err := r.db.GetContext(ctx, &p, `
-		SELECT p.*, `+productVariantsAgg+`
+		SELECT p.*, COALESCE(jsonb_agg(
+			(to_jsonb(v) - 'created_at' - 'updated_at') || jsonb_build_object(
+				'created_at', to_char(v.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+				'updated_at', to_char(v.updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+			) ORDER BY v.created_at
+		) FILTER (WHERE v.id IS NOT NULL), '[]'::jsonb) AS variants
 		FROM products p
+		LEFT JOIN product_variants v ON v.product_id = p.id
 		WHERE p.id = $1 AND p.business_id = $2
+		GROUP BY p.id
 	`, id, businessID)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -123,28 +112,56 @@ func (r *productRepo) GetByID(ctx context.Context, id, businessID string) (*mode
 	return &p, nil
 }
 
-// ─── List ─────────────────────────────────────────────────────────────────────
+func (r *productRepo) GetByCategorySlug(ctx context.Context, slug, businessID string) ([]models.Product, error) {
+	var products []models.Product
+	err := r.db.SelectContext(ctx, &products, `
+		SELECT p.*, COALESCE(jsonb_agg(
+			(to_jsonb(v) - 'created_at' - 'updated_at') || jsonb_build_object(
+				'created_at', to_char(v.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+				'updated_at', to_char(v.updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+			) ORDER BY v.created_at
+		) FILTER (WHERE v.id IS NOT NULL), '[]'::jsonb) AS variants
+		FROM products p
+		JOIN categories c ON c.id = p.category_id
+		LEFT JOIN product_variants v ON v.product_id = p.id
+		WHERE c.slug = $1 AND p.business_id = $2
+		GROUP BY p.id
+		ORDER BY p.created_at DESC
+	`, slug, businessID)
+	if err != nil {
+		return nil, fmt.Errorf("product get by category slug: %w", err)
+	}
+	return products, nil
+}
 
 type ListProductsFilter struct {
-	Status *models.ProductStatus
-	Search string
-	Limit  int
-	Offset int
+	Status       *models.ProductStatus
+	Search       string
+	CategorySlug string
+	Limit        int
+	Offset       int
 }
 
 func (r *productRepo) List(ctx context.Context, businessID string, f ListProductsFilter) ([]models.Product, error) {
 	args := []any{businessID}
-	conds := []string{"business_id = $1"}
+	conds := []string{"p.business_id = $1"}
+	join := ""
 	i := 2
 
 	if f.Status != nil {
-		conds = append(conds, fmt.Sprintf("status = $%d", i))
+		conds = append(conds, fmt.Sprintf("p.status = $%d", i))
 		args = append(args, string(*f.Status))
 		i++
 	}
 	if f.Search != "" {
-		conds = append(conds, fmt.Sprintf("(name ILIKE $%d OR sku ILIKE $%d)", i, i))
+		conds = append(conds, fmt.Sprintf("(p.name ILIKE $%d OR p.sku ILIKE $%d)", i, i))
 		args = append(args, "%"+f.Search+"%")
+		i++
+	}
+	if f.CategorySlug != "" {
+		join = "JOIN categories c ON c.id = p.category_id"
+		conds = append(conds, fmt.Sprintf("c.slug = $%d", i))
+		args = append(args, f.CategorySlug)
 		i++
 	}
 
@@ -154,12 +171,20 @@ func (r *productRepo) List(ctx context.Context, businessID string, f ListProduct
 	}
 
 	q := fmt.Sprintf(`
-		SELECT p.*, %s
+		SELECT p.*, COALESCE(jsonb_agg(
+			(to_jsonb(v) - 'created_at' - 'updated_at') || jsonb_build_object(
+				'created_at', to_char(v.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+				'updated_at', to_char(v.updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+			) ORDER BY v.created_at
+		) FILTER (WHERE v.id IS NOT NULL), '[]'::jsonb) AS variants
 		FROM products p
+		%s
+		LEFT JOIN product_variants v ON v.product_id = p.id
 		WHERE %s
+		GROUP BY p.id
 		ORDER BY p.created_at DESC
 		LIMIT $%d OFFSET $%d`,
-		productVariantsAgg, strings.Join(conds, " AND "), i, i+1,
+		join, strings.Join(conds, " AND "), i, i+1,
 	)
 	args = append(args, limit, f.Offset)
 
@@ -170,13 +195,39 @@ func (r *productRepo) List(ctx context.Context, businessID string, f ListProduct
 	return products, nil
 }
 
-// ─── Update ───────────────────────────────────────────────────────────────────
+func (r *productRepo) Count(ctx context.Context, businessID, categorySlug string) (int, error) {
+	args := []any{businessID}
+	join := ""
+	conds := "p.business_id = $1"
+
+	if categorySlug != "" {
+		join = "JOIN categories c ON c.id = p.category_id"
+		conds += " AND c.slug = $2"
+		args = append(args, categorySlug)
+	}
+
+	var count int
+	q := fmt.Sprintf(`
+		SELECT COUNT(*)
+		FROM products p
+		%s
+		WHERE %s
+	`, join, conds)
+	if err := r.db.GetContext(ctx, &count, q, args...); err != nil {
+		return 0, fmt.Errorf("product count: %w", err)
+	}
+	return count, nil
+}
 
 func (r *productRepo) Update(ctx context.Context, tx *sqlx.Tx, id, businessID string, input models.UpdateProductInput) error {
 	fields := map[string]any{}
 
 	if input.Name != nil {
 		fields["name"] = *input.Name
+	}
+
+	if input.CategoryID != nil {
+		fields["category_id"] = *input.CategoryID
 	}
 	if input.Description != nil {
 		fields["description"] = *input.Description
@@ -245,8 +296,6 @@ func (r *productRepo) Update(ctx context.Context, tx *sqlx.Tx, id, businessID st
 	return nil
 }
 
-// ─── Delete ───────────────────────────────────────────────────────────────────
-
 func (r *productRepo) Delete(ctx context.Context, id, businessID string) error {
 	res, err := r.db.ExecContext(ctx, `
 		DELETE FROM products WHERE id = $1 AND business_id = $2
@@ -260,8 +309,6 @@ func (r *productRepo) Delete(ctx context.Context, id, businessID string) error {
 	}
 	return nil
 }
-
-// ─── AdjustStock ─────────────────────────────────────────────────────────────
 
 func (r *productRepo) AdjustStock(ctx context.Context, tx sqlx.ExtContext, id, businessID string, delta int) (*models.Product, error) {
 	_, err := tx.ExecContext(ctx, `
@@ -278,8 +325,6 @@ func (r *productRepo) AdjustStock(ctx context.Context, tx sqlx.ExtContext, id, b
 
 	return r.GetByID(ctx, id, businessID)
 }
-
-// ─── LowStock ─────────────────────────────────────────────────────────────────
 
 func (r *productRepo) LowStock(ctx context.Context, businessID string) ([]models.Product, error) {
 	var products []models.Product

@@ -23,6 +23,7 @@ class ChatAudioRequest(BaseModel):
 class KnowledgeChunk(BaseModel):
     content: str
     source_type: Optional[str] = None
+    source_id: Optional[str] = None
     score: float = 0.0
 
 

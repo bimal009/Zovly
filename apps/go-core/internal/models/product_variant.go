@@ -85,7 +85,7 @@ type CreateProductVariantInput struct {
 	StockQty          int  `json:"stock_qty"           validate:"min=0"`
 	LowStockThreshold *int `json:"low_stock_threshold" validate:"omitempty,min=0"`
 
-	Images []string `json:"images" validate:"omitempty,dive,url"`
+	Images []string `json:"images" validate:"omitempty,max=4,dive,url"`
 }
 
 // ─── Update ───────────────────────────────────────────────────────────────────
@@ -104,5 +104,5 @@ type UpdateProductVariantInput struct {
 	StockQty          *int `json:"stock_qty"           validate:"omitempty,min=0"`
 	LowStockThreshold *int `json:"low_stock_threshold" validate:"omitempty,min=0"`
 
-	Images []string `json:"images" validate:"omitempty,dive,url"`
+	Images []string `json:"images" validate:"omitempty,max=4,dive,url"`
 }
