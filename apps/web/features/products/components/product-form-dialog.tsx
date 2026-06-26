@@ -51,11 +51,13 @@ import {
 const optionalNonNeg = z.coerce.number().nonnegative().optional();
 const optionalNonNegInt = z.coerce.number().int().nonnegative().optional();
 
-// A variant option, e.g. { key: "size", values: ["S", "M", "L"] }
+// An attribute/option, e.g. { key: "size", values: ["S", "M", "L"] }
 const VariantAttributeSchema = z.object({
   key: z.string(),
   values: z.array(z.string()),
 });
+
+type AttributeFormValues = z.infer<typeof VariantAttributeSchema>;
 
 const VariantSchema = z.object({
   name: z.string().min(1, "Variant name is required"),
@@ -72,12 +74,18 @@ const VariantSchema = z.object({
 // "" means "no category"
 const NO_CATEGORY = "";
 
+const DESCRIPTION_MAX = 200;
+
 const ProductFormSchema = z.object({
   category_id: z.string(),
   name: z.string().min(1, "Name is required"),
-  description: z.string().max(200, "Must be 200 characters or less"),
+  description: z
+    .string()
+    .max(DESCRIPTION_MAX, `Must be ${DESCRIPTION_MAX} characters or less`),
   sku: z.string(),
   status: ProductStatusSchema,
+  tags: z.array(z.string()),
+  attributes: z.array(VariantAttributeSchema),
   price: z.coerce.number().positive("Must be > 0"),
   cost_price: optionalNonNeg,
   discount: z.coerce.number().int().min(0).max(100),
@@ -108,9 +116,11 @@ function toCents(val: number) {
   return Math.round(val * 100);
 }
 
-// Maps a saved variant back into editable form values.
-function variantToFormValues(v: ProductVariant): VariantFormValues {
-  const attributes = Object.entries(v.attributes ?? {}).map(([key, value]) => ({
+// Saved attributes ({ size: "S, M, L" }) → editable rows ([{ key, values }]).
+function attributesToFormValues(
+  attrs?: Record<string, string> | null,
+): AttributeFormValues[] {
+  return Object.entries(attrs ?? {}).map(([key, value]) => ({
     key,
     // values were stored comma-joined ("S, M, L") — split them back into tags
     values: value
@@ -118,6 +128,24 @@ function variantToFormValues(v: ProductVariant): VariantFormValues {
       .map((s) => s.trim())
       .filter(Boolean),
   }));
+}
+
+// Editable rows → API shape ({ size: "S, M, L" }). Empty keys/values dropped.
+function buildAttributes(
+  rows: AttributeFormValues[],
+): Record<string, string> | undefined {
+  const out = rows.reduce<Record<string, string>>((acc, a) => {
+    const key = a.key.trim();
+    const values = a.values.map((s) => s.trim()).filter(Boolean);
+    if (key && values.length) acc[key] = values.join(", ");
+    return acc;
+  }, {});
+  return Object.keys(out).length ? out : undefined;
+}
+
+// Maps a saved variant back into editable form values.
+function variantToFormValues(v: ProductVariant): VariantFormValues {
+  const attributes = attributesToFormValues(v.attributes);
 
   return {
     name: v.name,
@@ -137,6 +165,8 @@ const DEFAULT_VALUES: ProductFormValues = {
   description: "",
   sku: "",
   status: "active",
+  tags: [],
+  attributes: [],
   price: 0,
   cost_price: undefined,
   discount: 0,
@@ -154,6 +184,8 @@ function toFormValues(p: Product): ProductFormValues {
     description: p.description ?? "",
     sku: p.sku ?? "",
     status: p.status,
+    tags: p.tags ?? [],
+    attributes: attributesToFormValues(p.attributes),
     price: p.price / 100,
     cost_price: p.cost_price != null ? p.cost_price / 100 : undefined,
     discount: p.discount ?? 0,
@@ -166,13 +198,6 @@ function toFormValues(p: Product): ProductFormValues {
 }
 
 function buildVariantInput(v: VariantFormValues): CreateProductVariantInput {
-  const attributes = v.attributes.reduce<Record<string, string>>((acc, a) => {
-    const key = a.key.trim();
-    const values = a.values.map((s) => s.trim()).filter(Boolean);
-    if (key && values.length) acc[key] = values.join(", ");
-    return acc;
-  }, {});
-
   return {
     name: v.name.trim(),
     sku: v.sku.trim() || undefined,
@@ -181,7 +206,7 @@ function buildVariantInput(v: VariantFormValues): CreateProductVariantInput {
     discount: v.discount > 0 ? v.discount : undefined,
     stock_qty: v.stock_qty,
     low_stock_threshold: v.low_stock_threshold,
-    attributes: Object.keys(attributes).length ? attributes : undefined,
+    attributes: buildAttributes(v.attributes),
   };
 }
 
@@ -192,6 +217,8 @@ function buildCreateInput(v: ProductFormValues): CreateProductInput {
     description: v.description.trim() || undefined,
     sku: v.sku.trim() || undefined,
     status: v.status,
+    tags: v.tags.length ? v.tags : undefined,
+    attributes: buildAttributes(v.attributes),
     price: toCents(v.price),
     cost_price: v.cost_price != null ? toCents(v.cost_price) : undefined,
     discount: v.discount,
@@ -212,6 +239,8 @@ function buildUpdateInput(v: ProductFormValues): UpdateProductInput {
     description: v.description.trim() || null,
     sku: v.sku.trim() || null,
     status: v.status,
+    tags: v.tags,
+    attributes: buildAttributes(v.attributes) ?? null,
     price: toCents(v.price),
     cost_price: v.cost_price != null ? toCents(v.cost_price) : null,
     discount: v.discount,
@@ -249,6 +278,7 @@ export function ProductFormDialog({
     control,
     reset,
     setValue,
+    watch,
     formState: { errors },
   } = useForm<ProductFormValues>({
     resolver: zodResolver(ProductFormSchema) as Resolver<ProductFormValues>,
@@ -311,12 +341,17 @@ export function ProductFormDialog({
                   )}
                 </div>
                 <div className="flex flex-col gap-1.5 sm:col-span-2">
-                  <Label htmlFor="p-desc">Description</Label>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="p-desc">Description</Label>
+                    <span className="text-xs text-muted-foreground">
+                      {watch("description")?.length ?? 0}/{DESCRIPTION_MAX}
+                    </span>
+                  </div>
                   <Textarea
                     id="p-desc"
                     placeholder="Short product description…"
                     rows={2}
-                    maxLength={200}
+                    maxLength={DESCRIPTION_MAX}
                     {...register("description")}
                   />
                   {errors.description && (
@@ -383,6 +418,21 @@ export function ProductFormDialog({
                           <SelectItem value="archived">Archived</SelectItem>
                         </SelectContent>
                       </Select>
+                    )}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5 sm:col-span-2">
+                  <Label htmlFor="p-tags">Tags</Label>
+                  <Controller
+                    name="tags"
+                    control={control}
+                    render={({ field }) => (
+                      <TagInput
+                        value={field.value}
+                        onChange={field.onChange}
+                        placeholder="Type a tag, press Enter or comma"
+                        ariaLabel="Product tags"
+                      />
                     )}
                   />
                 </div>
@@ -509,6 +559,20 @@ export function ProductFormDialog({
 
             <Separator />
 
+            {/* Attributes */}
+            <div className="flex flex-col gap-3">
+              <div>
+                <p className="text-sm font-semibold">Attributes</p>
+                <p className="text-xs text-muted-foreground">
+                  Optional. Product-level details like material or fit (e.g.
+                  material → cotton).
+                </p>
+              </div>
+              <ProductAttributesEditor control={control} register={register} />
+            </div>
+
+            <Separator />
+
             {/* Variants */}
             <div className="flex flex-col gap-3">
               <div className="flex items-center justify-between">
@@ -631,6 +695,75 @@ function TagInput({ value, onChange, placeholder, ariaLabel }: TagInputProps) {
         placeholder={value.length ? "" : placeholder}
         className="min-w-[100px] flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
       />
+    </div>
+  );
+}
+
+// ─── Product attributes editor (key → values) ──────────────────────────────────
+
+interface ProductAttributesEditorProps {
+  control: Control<ProductFormValues>;
+  register: UseFormRegister<ProductFormValues>;
+}
+
+function ProductAttributesEditor({
+  control,
+  register,
+}: ProductAttributesEditorProps) {
+  const { fields, append, remove } = useFieldArray({
+    control,
+    name: "attributes",
+  });
+
+  return (
+    <div className="flex flex-col gap-2">
+      {fields.map((attr, ai) => (
+        <div
+          key={attr.id}
+          className="flex flex-col gap-2 sm:flex-row sm:items-start"
+        >
+          <Input
+            placeholder="Attribute name (e.g. material)"
+            aria-label={`Attribute name ${ai + 1}`}
+            className="sm:w-40 sm:shrink-0"
+            {...register(`attributes.${ai}.key`)}
+          />
+          <div className="flex flex-1 items-start gap-2">
+            <Controller
+              control={control}
+              name={`attributes.${ai}.values`}
+              render={({ field }) => (
+                <TagInput
+                  value={field.value}
+                  onChange={field.onChange}
+                  placeholder="Type a value, press Enter or comma"
+                  ariaLabel={`Attribute values ${ai + 1}`}
+                />
+              )}
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-9 shrink-0 cursor-pointer text-muted-foreground hover:text-destructive"
+              onClick={() => remove(ai)}
+              aria-label={`Remove attribute ${ai + 1}`}
+            >
+              <Trash2 className="size-4" aria-hidden="true" />
+            </Button>
+          </div>
+        </div>
+      ))}
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="w-fit cursor-pointer text-muted-foreground"
+        onClick={() => append({ key: "", values: [] })}
+      >
+        <Plus className="size-4" aria-hidden="true" />
+        Add Attribute
+      </Button>
     </div>
   );
 }

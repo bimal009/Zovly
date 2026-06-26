@@ -42,6 +42,9 @@ export type Product = {
   description: string | null;
   sku: string | null;
   status: ProductStatus;
+  tags: string[];
+  // structured product-level attributes — { "material": "cotton", "fit": "slim" }
+  attributes?: Record<string, string> | null;
   price: number;
   cost_price: number | null;
   discount: number;
@@ -60,6 +63,8 @@ export type CreateProductInput = {
   description?: string;
   sku?: string;
   status?: ProductStatus;
+  tags?: string[];
+  attributes?: Record<string, string>;
   price: number;
   cost_price?: number;
   discount?: number;
@@ -77,6 +82,8 @@ export type UpdateProductInput = {
   description?: string | null;
   sku?: string | null;
   status?: ProductStatus;
+  tags?: string[];
+  attributes?: Record<string, string> | null;
   price?: number;
   cost_price?: number | null;
   discount?: number | null;

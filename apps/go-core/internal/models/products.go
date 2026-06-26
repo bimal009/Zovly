@@ -2,6 +2,7 @@
 package models
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/lib/pq"
@@ -28,6 +29,9 @@ type Product struct {
 	SKU         *string        `db:"sku"         json:"sku,omitempty"`
 	Status      ProductStatus  `db:"status"      json:"status"`
 	Tags        pq.StringArray `db:"tags"        json:"tags"`
+
+	// structured product-level attributes — { "material": "cotton", "fit": "slim" }
+	Attributes json.RawMessage `db:"attributes" json:"attributes,omitempty"`
 
 	// Pricing (cents)
 	Price     int    `db:"price"      json:"price"`
@@ -60,6 +64,8 @@ type CreateProductInput struct {
 	Status      ProductStatus `json:"status"      validate:"omitempty,oneof=active inactive archived"`
 	Tags        []string      `json:"tags"        validate:"omitempty,dive,min=1"`
 
+	Attributes json.RawMessage `json:"attributes"`
+
 	Price     int    `json:"price"      validate:"required,gt=0"`
 	CostPrice *int   `json:"cost_price" validate:"omitempty,gt=0"`
 	Discount  int    `json:"discount"   validate:"min=0,max=100"`
@@ -84,6 +90,8 @@ type UpdateProductInput struct {
 	Status      *ProductStatus `json:"status"      validate:"omitempty,oneof=active inactive archived"`
 	Tags        []string       `json:"tags"        validate:"omitempty,dive,min=1"`
 
+	Attributes json.RawMessage `json:"attributes"`
+
 	Price     *int    `json:"price"      validate:"omitempty,gt=0"`
 	CostPrice *int    `json:"cost_price" validate:"omitempty,gt=0"`
 	Discount  *int    `json:"discount"   validate:"omitempty,min=0,max=100"`
@@ -93,4 +101,7 @@ type UpdateProductInput struct {
 	LowStockThreshold *int `json:"low_stock_threshold" validate:"omitempty,min=0"`
 
 	Images []string `json:"images" validate:"omitempty,dive,url"`
+
+	// Variants, when provided, fully replace the product's existing variants.
+	Variants []CreateProductVariantInput `json:"variants" validate:"omitempty,dive"`
 }

@@ -11,6 +11,7 @@ import (
 
 type ProductVariantRepo interface {
 	Create(ctx context.Context, tx *sqlx.Tx, input models.CreateProductVariantInput) (*models.ProductVariant, error)
+	DeleteByProduct(ctx context.Context, tx *sqlx.Tx, productID, businessID string) error
 }
 
 type productVariantRepo struct {
@@ -51,4 +52,14 @@ func (r *productVariantRepo) Create(ctx context.Context, tx *sqlx.Tx, input mode
 	}
 
 	return &v, nil
+}
+
+func (r *productVariantRepo) DeleteByProduct(ctx context.Context, tx *sqlx.Tx, productID, businessID string) error {
+	_, err := tx.ExecContext(ctx, `
+		DELETE FROM product_variants WHERE product_id = $1 AND business_id = $2
+	`, productID, businessID)
+	if err != nil {
+		return fmt.Errorf("product variant delete by product: %w", err)
+	}
+	return nil
 }

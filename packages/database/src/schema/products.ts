@@ -4,6 +4,7 @@ import {
   timestamp,
   uuid,
   integer,
+  jsonb,
   index,
   pgEnum,
 } from "drizzle-orm/pg-core";
@@ -40,6 +41,10 @@ export const products = pgTable(
     status: productStatusEnum("status").notNull().default("active"),
 
     tags: text("tags").array().default([]), // ["winter", "waterproof", "unisex"]
+
+    // structured product-level attributes — { "material": "cotton", "fit": "slim" }
+    // fed into RAG / AI DM context alongside description + tags
+    attributes: jsonb("attributes"),
 
     price: integer("price").notNull(), // selling price — what customer pays
     costPrice: integer("cost_price"), // what business paid (never shown to customer)

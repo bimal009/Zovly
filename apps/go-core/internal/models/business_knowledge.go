@@ -9,9 +9,10 @@ import (
 type KnowledgeSourceType string
 
 const (
-	SourceFaq    KnowledgeSourceType = "faq"
-	SourcePolicy KnowledgeSourceType = "policy"
-	SourcePost   KnowledgeSourceType = "post"
+	SourceFaq     KnowledgeSourceType = "faq"
+	SourcePolicy  KnowledgeSourceType = "policy"
+	SourcePost    KnowledgeSourceType = "post"
+	SourceProduct KnowledgeSourceType = "product"
 )
 
 type CreateKnowledgeChunk struct {
@@ -45,7 +46,7 @@ func ToChunkInserts(
 			ChunkIndex: c.ChunkIndex,
 			Content:    c.Content,
 			Embedding:  pgvector.NewVector(c.Embedding),
-			Metadata:   metadata, // same {question} stamped on every chunk
+			Metadata:   metadata,
 		}
 	}
 	return inserts

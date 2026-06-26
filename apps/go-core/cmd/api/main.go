@@ -14,6 +14,7 @@ import (
 	"github.com/bimal009/Zovly/internal/config"
 	"github.com/bimal009/Zovly/internal/config/database"
 	"github.com/bimal009/Zovly/internal/config/redis"
+	"github.com/bimal009/Zovly/internal/embed"
 	"github.com/bimal009/Zovly/internal/handler"
 	"github.com/bimal009/Zovly/internal/middlewares"
 	repository "github.com/bimal009/Zovly/internal/repo"
@@ -68,7 +69,8 @@ func main() {
 	planService := service.NewPlanService(db, rdb, slog, planRepo)
 	businessService := service.NewBusinessService(db, businessRepo, businessMemberRepo, userRepo, slog, appRepo)
 	appService := service.NewAppService(appRepo, slog)
-	productService := service.NewProductService(db, rdb, slog, productRepo, productVariantRepo)
+	embedClient := embed.New(cfg.App.AIServiceURL)
+	productService := service.NewProductService(db, rdb, slog, productRepo, productVariantRepo, knowledgeRepo, embedClient)
 	categoryService := service.NewCategoryService(rdb, slog, categoryRepo)
 	serviceService := service.NewServiceService(db, rdb, slog, serviceRepo)
 	faqService := service.NewFaqService(faqRepo, knowledgeRepo, slog, db, *cfg)

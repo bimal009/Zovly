@@ -148,6 +148,13 @@
       "when": 1782409830551,
       "tag": "0020_chief_groot",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1782476097568,
+      "tag": "0021_product_attributes",
+      "breakpoints": true
     }
   ]
 }

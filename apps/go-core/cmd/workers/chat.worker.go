@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/bimal009/Zovly/internal/config"
+	"github.com/bimal009/Zovly/internal/embed"
 	"github.com/bimal009/Zovly/internal/models"
 	repository "github.com/bimal009/Zovly/internal/repo"
 	"github.com/bimal009/Zovly/internal/service"
@@ -34,6 +35,7 @@ type AIWorker struct {
 	rdb                  *redis.Client
 	httpClient           *http.Client
 	cfg                  config.Config
+	embedder             *embed.Client
 }
 
 func NewAIWorker(
@@ -56,6 +58,7 @@ func NewAIWorker(
 		cfg:                  cfg,
 		db:                   db,
 		httpClient:           &http.Client{Timeout: 60 * time.Second},
+		embedder:             embed.New(cfg.App.AIServiceURL),
 	}
 }
 
@@ -192,12 +195,12 @@ func (w *AIWorker) processAndReply(ctx context.Context, msg redis.XMessage) erro
 	}
 
 	w.log.Info("embedding message", "conversation_id", conversationID, "chars", len(searchText))
-	queryVec, err := w.embedChat(ctx, searchText, "query")
+	queryVec, err := w.embedder.EmbedChat(ctx, searchText, "query")
 	if err != nil {
 		return fmt.Errorf("embed query: %w", err)
 	}
 
-	passageVec, err := w.embedChat(ctx, searchText, "passage")
+	passageVec, err := w.embedder.EmbedChat(ctx, searchText, "passage")
 	if err != nil {
 		w.log.Error("embed passage failed", "conversation_id", conversationID, "err", err)
 	} else {
@@ -303,39 +306,6 @@ func (w *AIWorker) callChatReply(
 		return "", fmt.Errorf("decode chat reply response: %w", err)
 	}
 	return result.Reply, nil
-}
-
-func (w *AIWorker) embedChat(ctx context.Context, message, kind string) (pgvector.Vector, error) {
-	body, err := json.Marshal(map[string]string{"message": message, "kind": kind})
-	if err != nil {
-		return pgvector.Vector{}, fmt.Errorf("marshal embed request: %w", err)
-	}
-
-	reqURL := w.cfg.App.AIServiceURL + "/api/v1/ml/chat/embed"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(body))
-	if err != nil {
-		return pgvector.Vector{}, fmt.Errorf("build embed request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := w.httpClient.Do(req)
-	if err != nil {
-		return pgvector.Vector{}, fmt.Errorf("call embed service: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return pgvector.Vector{}, fmt.Errorf("embed service returned status %d", resp.StatusCode)
-	}
-
-	var result models.ChatEmbedResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return pgvector.Vector{}, fmt.Errorf("decode embed response: %w", err)
-	}
-	if len(result.Embeddings) == 0 {
-		return pgvector.Vector{}, fmt.Errorf("embed service returned no embeddings")
-	}
-	return pgvector.NewVector(result.Embeddings[0].Embedding), nil
 }
 
 func (w *AIWorker) searchKnowledge(ctx context.Context, businessID string, vec pgvector.Vector, k int) ([]models.KnowledgeChunk, error) {

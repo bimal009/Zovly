@@ -23,25 +23,18 @@ export const productVariants = pgTable(
       .notNull()
       .references(() => business.id, { onDelete: "cascade" }),
 
-    // ── Identity ──────────────────────────────────────────────────────────
     name: text("name").notNull(), // "Red / Medium", "500ml", "Large"
     sku: text("sku"),
 
-    // structured option values — { "color": "red", "size": "M" }
-    // used for display and (later) exact-match selection at checkout
     attributes: jsonb("attributes"),
 
-    // ── Pricing (cents) ───────────────────────────────────────────────────
-    // null price = inherit the parent product's price
     price: integer("price"), // selling price override; null → use product.price
     costPrice: integer("cost_price"), // what business paid (never shown to customer)
     discount: integer("discount"), // override; null → use product.discount
 
-    // ── Inventory ─────────────────────────────────────────────────────────
     stockQty: integer("stock_qty").notNull().default(0),
     lowStockThreshold: integer("low_stock_threshold").default(5),
 
-    // ── Media — variant-specific images (e.g. the red one) ────────────────
     images: text("images").array().default([]),
 
     createdAt: timestamp("created_at").defaultNow().notNull(),

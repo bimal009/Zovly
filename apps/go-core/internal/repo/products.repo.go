@@ -16,7 +16,7 @@ type ProductRepo interface {
 	Create(ctx context.Context, tx *sqlx.Tx, input models.CreateProductInput) (*models.Product, error)
 	GetByID(ctx context.Context, id, businessID string) (*models.Product, error)
 	List(ctx context.Context, businessID string, f ListProductsFilter) ([]models.Product, error)
-	Update(ctx context.Context, id, businessID string, input models.UpdateProductInput) (*models.Product, error)
+	Update(ctx context.Context, tx *sqlx.Tx, id, businessID string, input models.UpdateProductInput) error
 	Delete(ctx context.Context, id, businessID string) error
 	AdjustStock(ctx context.Context, tx sqlx.ExtContext, id, businessID string, delta int) (*models.Product, error)
 	LowStock(ctx context.Context, businessID string) ([]models.Product, error)
@@ -55,12 +55,12 @@ const productVariantsAgg = `
 func (r *productRepo) Create(ctx context.Context, tx *sqlx.Tx, input models.CreateProductInput) (*models.Product, error) {
 	const q = `
 		INSERT INTO products (
-			business_id, name, description, sku, status,
+			business_id, name, description, sku, status, tags, attributes,
 			price, cost_price, discount, currency,
 			stock_qty, low_stock_threshold,
 			images
 		) VALUES (
-			:business_id, :name, :description, :sku, :status,
+			:business_id, :name, :description, :sku, :status, :tags, :attributes,
 			:price, :cost_price, :discount, :currency,
 			:stock_qty, :low_stock_threshold,
 			:images
@@ -82,6 +82,8 @@ func (r *productRepo) Create(ctx context.Context, tx *sqlx.Tx, input models.Crea
 		"description":         input.Description,
 		"sku":                 input.SKU,
 		"status":              status,
+		"tags":                pq.Array(orEmptySlice(input.Tags)),
+		"attributes":          orNullJSON(input.Attributes),
 		"price":               input.Price,
 		"cost_price":          input.CostPrice,
 		"discount":            input.Discount,
@@ -170,7 +172,7 @@ func (r *productRepo) List(ctx context.Context, businessID string, f ListProduct
 
 // ─── Update ───────────────────────────────────────────────────────────────────
 
-func (r *productRepo) Update(ctx context.Context, id, businessID string, input models.UpdateProductInput) (*models.Product, error) {
+func (r *productRepo) Update(ctx context.Context, tx *sqlx.Tx, id, businessID string, input models.UpdateProductInput) error {
 	fields := map[string]any{}
 
 	if input.Name != nil {
@@ -184,6 +186,12 @@ func (r *productRepo) Update(ctx context.Context, id, businessID string, input m
 	}
 	if input.Status != nil {
 		fields["status"] = string(*input.Status)
+	}
+	if input.Tags != nil {
+		fields["tags"] = pq.Array(orEmptySlice(input.Tags))
+	}
+	if input.Attributes != nil {
+		fields["attributes"] = orNullJSON(input.Attributes)
 	}
 	if input.Price != nil {
 		fields["price"] = *input.Price
@@ -207,8 +215,9 @@ func (r *productRepo) Update(ctx context.Context, id, businessID string, input m
 		fields["images"] = pq.Array(orEmptySlice(input.Images))
 	}
 
+	// nothing to change on the products row itself (e.g. only variants changed)
 	if len(fields) == 0 {
-		return r.GetByID(ctx, id, businessID)
+		return nil
 	}
 
 	fields["updated_at"] = time.Now()
@@ -230,11 +239,10 @@ func (r *productRepo) Update(ctx context.Context, id, businessID string, input m
 		strings.Join(setClauses, ", "),
 	)
 
-	if _, err := r.db.NamedExecContext(ctx, q, fields); err != nil {
-		return nil, fmt.Errorf("product update: %w", err)
+	if _, err := tx.NamedExecContext(ctx, q, fields); err != nil {
+		return fmt.Errorf("product update: %w", err)
 	}
-
-	return r.GetByID(ctx, id, businessID)
+	return nil
 }
 
 // ─── Delete ───────────────────────────────────────────────────────────────────

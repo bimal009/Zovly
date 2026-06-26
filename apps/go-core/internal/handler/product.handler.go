@@ -2,6 +2,7 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -147,11 +148,11 @@ func (h *ProductHandler) Update(c *gin.Context) {
 
 	product, err := h.productService.Update(c.Request.Context(), id, businessID, req)
 	if err != nil {
+		if errors.Is(err, service.ErrProductNotFound) {
+			c.JSON(http.StatusNotFound, responses.NotFound("product not found"))
+			return
+		}
 		c.JSON(http.StatusInternalServerError, responses.InternalServerError(err.Error()))
-		return
-	}
-	if product == nil {
-		c.JSON(http.StatusNotFound, responses.NotFound("product not found"))
 		return
 	}
 
