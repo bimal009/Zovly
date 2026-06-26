@@ -70,7 +70,7 @@ func main() {
 	businessService := service.NewBusinessService(db, businessRepo, businessMemberRepo, userRepo, slog, appRepo)
 	appService := service.NewAppService(appRepo, slog)
 	embedClient := embed.New(cfg.App.AIServiceURL)
-	productService := service.NewProductService(db, rdb, slog, productRepo, productVariantRepo, knowledgeRepo, embedClient)
+	productService := service.NewProductService(db, rdb, slog, productRepo, productVariantRepo, knowledgeRepo, categoryRepo, embedClient)
 	categoryService := service.NewCategoryService(rdb, slog, categoryRepo)
 	serviceService := service.NewServiceService(db, rdb, slog, serviceRepo)
 	faqService := service.NewFaqService(faqRepo, knowledgeRepo, slog, db, *cfg)

@@ -1,3 +1,4 @@
+import json
 import os
 from dataclasses import dataclass
 
@@ -63,5 +64,46 @@ def get_category_product_count(
     except requests.HTTPError:
         return f"HTTP {response.status_code}: {response.text}"
 
+    except requests.RequestException as e:
+        return f"Request failed: {e}"
+
+
+@tool
+def get_product_details(
+    runtime: ToolRuntime[BusinessContext],
+    source_id: str,
+) -> str:
+    """Get full, up-to-date details (price, stock, description, variants) for a single product.
+
+    Use this when the customer asks about a specific product's price, availability, or options.
+    Pass the source_id shown next to that product in the retrieved context (e.g. "source_id: abc").
+    Prices are in minor units (cents) — divide by 100 for the display amount.
+    """
+
+    business_id = runtime.context.business_id
+
+    url = f"{API_BASE_URL}/api/v1/internal/products/{source_id}"
+    params = {"businessID": business_id}
+    headers = {
+        "Authorization": f"Bearer {INTERNAL_TOKEN}",
+        "Accept": "application/json",
+    }
+
+    try:
+        response = requests.get(url, params=params, headers=headers, timeout=30)
+
+        if response.status_code == 404:
+            return "Product not found."
+
+        response.raise_for_status()
+
+        product = response.json().get("data")
+        if not product:
+            return "Product not found."
+
+        return json.dumps(product, ensure_ascii=False)
+
+    except requests.HTTPError:
+        return f"HTTP {response.status_code}: {response.text}"
     except requests.RequestException as e:
         return f"Request failed: {e}"

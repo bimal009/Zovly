@@ -44,7 +44,11 @@ import { ProductFormDialog } from "./product-form-dialog";
 const STATUS_VALUES = ["active", "inactive", "archived"] as const;
 const PAGE_SIZE_VALUES = [10, 20, 50, 100] as const;
 
-export function ProductsTable() {
+interface ProductsTableProps {
+  businessId: string;
+}
+
+export function ProductsTable({ businessId }: ProductsTableProps) {
   const [filters, setFilters] = useQueryStates({
     search: parseAsString.withDefault(""),
     status: parseAsStringEnum<ProductStatus>([...STATUS_VALUES]),
@@ -216,6 +220,7 @@ export function ProductsTable() {
       />
 
       <ProductFormDialog
+        businessId={businessId}
         open={formOpen}
         onOpenChange={setFormOpen}
         editing={editing}

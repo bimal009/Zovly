@@ -68,6 +68,7 @@ func RegisterAll(
 	internal.Use(internalMiddleware)
 	{
 		internal.GET("/products/count", productHandler.Count)
+		internal.GET("/products/:id", productHandler.GetByIDInternal)
 		internal.GET("/categories", categoryHandler.GetAllInternal)
 	}
 

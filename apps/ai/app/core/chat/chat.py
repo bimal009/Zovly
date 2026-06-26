@@ -9,7 +9,11 @@ from langchain_openai import ChatOpenAI
 from langchain.agents import create_agent
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from app.models.chat import ChatReqModel, ChatImageRequest, ChatAudioRequest
-from app.core.tools.product import get_category_product_count, BusinessContext
+from app.core.tools.product import (
+    get_category_product_count,
+    get_product_details,
+    BusinessContext,
+)
 from app.core.tools.category import get_categories
 from faster_whisper import WhisperModel
 
@@ -28,7 +32,7 @@ model = ChatOpenAI(
 
 agent = create_agent(
     model,
-    tools=[get_category_product_count, get_categories],
+    tools=[get_category_product_count, get_product_details, get_categories],
     context_schema=BusinessContext,
 )
 
@@ -44,7 +48,6 @@ analysis_model = ChatOpenAI(
 
 
 
-# ── service ─────────────────────────────────────────────────
 
 class ChatService:
     def handle_with_context(self, req: ChatReqModel) -> str:
@@ -89,6 +92,9 @@ class ChatService:
                 "categories exist, e.g. before counting products in one.\n"
                 "- get_category_product_count: look up how many products the business has, optionally narrowed "
                 "to a category (pass its slug). Use it when a customer asks how many products / catalogue size.\n"
+                "- get_product_details: fetch full, up-to-date details (price, stock, variants, description) for a "
+                "specific product. Pass the source_id shown next to that product in the retrieved context. Use it "
+                "when a customer asks about a specific product's price, availability, or options.\n"
                 "- Never ask the customer for the business ID — it is supplied automatically.\n\n"
 
                 "FORMATTING:\n"
@@ -121,14 +127,27 @@ class ChatService:
                 name += f" (@{c.contact_username})"
             system += f"\n\nYou are speaking with: {name}"
 
-        # retrieved knowledge + similar past chats, sorted by score, into system
         retrieved = sorted(
             list(ctx.knowledge) + list(ctx.past_chats),
             key=lambda x: x.score,
             reverse=True,
         )
         if retrieved:
-            ctx_text = "\n\n---\n\n".join(r.content for r in retrieved)
+            parts = []
+            for r in retrieved:
+                stype = getattr(r, "source_type", None)
+                if stype == "product" and getattr(r, "source_id", None):
+                    parts.append(
+                        f"[PRODUCT] {r.content}\n"
+                        f"(For live price, stock, and variants, call get_product_details with source_id='{r.source_id}')"
+                    )
+                elif stype == "faq":
+                    parts.append(f"[FAQ] {r.content}")
+                elif stype:
+                    parts.append(f"[{stype.upper()}] {r.content}")
+                else:
+                    parts.append(r.content)
+            ctx_text = "\n\n---\n\n".join(parts)
             system += f"\n\nRelevant Context:\n\n{ctx_text}"
 
         messages.append(SystemMessage(content=system))
@@ -141,7 +160,6 @@ class ChatService:
             elif m.direction == "out":
                 messages.append(AIMessage(content=m.content))
 
-        # the current (combined) customer message
         messages.append(HumanMessage(content=req.message))
 
         try:
@@ -149,9 +167,6 @@ class ChatService:
                 {"messages": messages},
                 context=BusinessContext(business_id=req.business_id),
             )
-            print("\n" + "=" * 80)
-            print("AGENT MESSAGES")
-            print("=" * 80)
 
             for i, msg in enumerate(result["messages"], 1):
                 print(f"\n--- Message {i} ({type(msg).__name__}) ---")

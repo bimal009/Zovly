@@ -17,7 +17,11 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-var ErrProductNotFound = errors.New("product not found")
+var (
+	ErrProductNotFound = errors.New("product not found")
+	ErrCategoryRequired = errors.New("category is required")
+	ErrCategoryNotFound = errors.New("category not found")
+)
 
 type ProductService interface {
 	Create(ctx context.Context, input models.CreateProductInput) (*models.Product, error)
@@ -37,6 +41,7 @@ type productService struct {
 	productRepo        repository.ProductRepo
 	productVariantRepo repository.ProductVariantRepo
 	knowledgeRepo      repository.BusinessKnowledgeRepo
+	categoryRepo       repository.CategoryRepo
 	embedder           *embed.Client
 }
 
@@ -47,6 +52,7 @@ func NewProductService(
 	productRepo repository.ProductRepo,
 	productVariantRepo repository.ProductVariantRepo,
 	knowledgeRepo repository.BusinessKnowledgeRepo,
+	categoryRepo repository.CategoryRepo,
 	embedder *embed.Client,
 ) ProductService {
 	return &productService{
@@ -56,8 +62,31 @@ func NewProductService(
 		productRepo:        productRepo,
 		productVariantRepo: productVariantRepo,
 		knowledgeRepo:      knowledgeRepo,
+		categoryRepo:       categoryRepo,
 		embedder:           embedder,
 	}
+}
+
+// validateCategory ensures the given category exists and belongs to the business.
+// When required is true a missing/empty category is rejected; otherwise a nil
+// category is allowed (no change).
+func (s *productService) validateCategory(ctx context.Context, businessID string, categoryID *string, required bool) error {
+	if categoryID == nil || *categoryID == "" {
+		if required {
+			return ErrCategoryRequired
+		}
+		return nil
+	}
+
+	category, err := s.categoryRepo.Get(ctx, *categoryID, businessID)
+	if err != nil {
+		s.logger.Error("product category validate failed", "business_id", businessID, "category_id", *categoryID, "error", err)
+		return err
+	}
+	if category == nil {
+		return ErrCategoryNotFound
+	}
+	return nil
 }
 
 func productKey(id, businessID string) string {
@@ -123,6 +152,10 @@ func (s *productService) invalidateBusinessCache(ctx context.Context, businessID
 
 func (s *productService) Create(ctx context.Context, input models.CreateProductInput) (*models.Product, error) {
 	s.logger.Info("product create", "business_id", input.BusinessID, "name", input.Name)
+
+	if err := s.validateCategory(ctx, input.BusinessID, input.CategoryID, true); err != nil {
+		return nil, err
+	}
 
 	variantNames := make([]string, 0, len(input.Variants))
 	for i := range input.Variants {
@@ -272,6 +305,10 @@ func (s *productService) Update(ctx context.Context, id, businessID string, inpu
 	}
 	if current == nil {
 		return nil, ErrProductNotFound
+	}
+
+	if err := s.validateCategory(ctx, businessID, input.CategoryID, false); err != nil {
+		return nil, err
 	}
 
 	name := current.Name

@@ -12,6 +12,7 @@ import {
 } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { useRouter } from "next/navigation";
 import { Plus, Trash2, X } from "lucide-react";
 import { Badge } from "@repo/ui/components/ui/badge";
 import { Button } from "@repo/ui/components/ui/button";
@@ -76,11 +77,11 @@ const VariantSchema = z.object({
   images: z.array(z.string()).max(MAX_IMAGES, `Up to ${MAX_IMAGES} images`),
 });
 
-// "" means "no category"
+// "" means "no category selected yet" — validation requires one
 const NO_CATEGORY = "";
 
 const ProductFormSchema = z.object({
-  category_id: z.string(),
+  category_id: z.string().min(1, "Category is required"),
   name: z.string().min(1, "Name is required"),
   description: z
     .string()
@@ -262,6 +263,7 @@ function buildUpdateInput(v: ProductFormValues): UpdateProductInput {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 interface ProductFormDialogProps {
+  businessId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   editing: Product | null;
@@ -272,6 +274,7 @@ interface ProductFormDialogProps {
 }
 
 export function ProductFormDialog({
+  businessId,
   open,
   onOpenChange,
   editing,
@@ -297,8 +300,11 @@ export function ProductFormDialog({
     remove: removeVariant,
   } = useFieldArray({ control, name: "variants" });
 
+  const router = useRouter();
+
   const { data: categoriesData } = useGetCategories();
   const categories = categoriesData?.data ?? [];
+  const hasCategories = categories.length > 0;
 
   React.useEffect(() => {
     reset(editing ? toFormValues(editing) : DEFAULT_VALUES);
@@ -367,35 +373,57 @@ export function ProductFormDialog({
                   )}
                 </div>
                 <div className="flex flex-col gap-1.5 sm:col-span-2">
-                  <Label htmlFor="p-category">Category</Label>
-                  <Controller
-                    name="category_id"
-                    control={control}
-                    render={({ field }) => (
-                      <Select
-                        value={field.value || "none"}
-                        onValueChange={(v) =>
-                          field.onChange(v === "none" ? "" : v)
+                  <Label htmlFor="p-category">Category *</Label>
+                  {hasCategories ? (
+                    <Controller
+                      name="category_id"
+                      control={control}
+                      render={({ field }) => (
+                        <Select
+                          value={field.value || undefined}
+                          onValueChange={field.onChange}
+                        >
+                          <SelectTrigger id="p-category" className="w-full">
+                            <SelectValue placeholder="Select a category" />
+                          </SelectTrigger>
+                          <SelectContent className="p-2">
+                            {categories.map((c) => (
+                              <SelectItem
+                                key={c.id}
+                                value={c.id}
+                                className="capitalize"
+                              >
+                                {c.name.toLowerCase()}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                  ) : (
+                    <div className="flex flex-col gap-1.5 rounded-md border border-dashed border-input p-3">
+                      <p className="text-xs text-muted-foreground">
+                        No categories yet. Create one before adding a product.
+                      </p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="w-fit cursor-pointer"
+                        onClick={() =>
+                          router.push(`/${businessId}/categories`)
                         }
                       >
-                        <SelectTrigger id="p-category" className="w-full">
-                          <SelectValue placeholder="Uncategorized" />
-                        </SelectTrigger>
-                        <SelectContent className="p-2">
-                          <SelectItem value="none">Uncategorized</SelectItem>
-                          {categories.map((c) => (
-                            <SelectItem
-                              key={c.id}
-                              value={c.id}
-                              className="capitalize"
-                            >
-                              {c.name.toLowerCase()}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  />
+                        <Plus className="size-4" aria-hidden="true" />
+                        Add Category
+                      </Button>
+                    </div>
+                  )}
+                  {errors.category_id && (
+                    <p className="text-xs text-destructive">
+                      {errors.category_id.message}
+                    </p>
+                  )}
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <Label htmlFor="p-sku">SKU</Label>

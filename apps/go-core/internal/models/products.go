@@ -30,10 +30,10 @@ type Product struct {
 
 	Attributes json.RawMessage `db:"attributes" json:"attributes,omitempty"`
 
-	Price     int    `db:"price"      json:"price"`
-	CostPrice *int   `db:"cost_price" json:"cost_price,omitempty"` // never exposed to customer
-	Discount  int    `db:"discount"   json:"discount"`             // percentage 0-100
-	Currency  string `db:"currency"   json:"currency"`
+	Price     float64  `db:"price"      json:"price"`
+	CostPrice *float64 `db:"cost_price" json:"cost_price,omitempty"` // never exposed to customer
+	Discount  int      `db:"discount"   json:"discount"`             // percentage 0-100
+	Currency  string   `db:"currency"   json:"currency"`
 
 	StockQty          int  `db:"stock_qty"           json:"stock_qty"`
 	LowStockThreshold *int `db:"low_stock_threshold" json:"low_stock_threshold,omitempty"`
@@ -47,7 +47,7 @@ type Product struct {
 
 type CreateProductInput struct {
 	BusinessID string  `json:"business_id" validate:"required,uuid"`
-	CategoryID *string `json:"category_id" validate:"omitempty,uuid"`
+	CategoryID *string `json:"category_id" validate:"required,uuid"`
 
 	Name        string        `json:"name"        validate:"required,min=1,max=255"`
 	Description *string       `json:"description" validate:"omitempty,max=200"`
@@ -57,10 +57,10 @@ type CreateProductInput struct {
 
 	Attributes json.RawMessage `json:"attributes"`
 
-	Price     int    `json:"price"      validate:"required,gt=0"`
-	CostPrice *int   `json:"cost_price" validate:"omitempty,gt=0"`
-	Discount  int    `json:"discount"   validate:"min=0,max=100"`
-	Currency  string `json:"currency"   validate:"omitempty,len=3"` // ISO 4217
+	Price     float64  `json:"price"      validate:"required,gt=0"`
+	CostPrice *float64 `json:"cost_price" validate:"omitempty,gt=0"`
+	Discount  int      `json:"discount"   validate:"min=0,max=100"`
+	Currency  string   `json:"currency"   validate:"omitempty,len=3"` // ISO 4217
 
 	StockQty          int  `json:"stock_qty"           validate:"min=0"`
 	LowStockThreshold *int `json:"low_stock_threshold" validate:"omitempty,min=0"`
@@ -80,10 +80,10 @@ type UpdateProductInput struct {
 
 	Attributes json.RawMessage `json:"attributes"`
 
-	Price     *int    `json:"price"      validate:"omitempty,gt=0"`
-	CostPrice *int    `json:"cost_price" validate:"omitempty,gt=0"`
-	Discount  *int    `json:"discount"   validate:"omitempty,min=0,max=100"`
-	Currency  *string `json:"currency"   validate:"omitempty,len=3"`
+	Price     *float64 `json:"price"      validate:"omitempty,gt=0"`
+	CostPrice *float64 `json:"cost_price" validate:"omitempty,gt=0"`
+	Discount  *int     `json:"discount"   validate:"omitempty,min=0,max=100"`
+	Currency  *string  `json:"currency"   validate:"omitempty,len=3"`
 
 	StockQty          *int `json:"stock_qty"           validate:"omitempty,min=0"`
 	LowStockThreshold *int `json:"low_stock_threshold" validate:"omitempty,min=0"`

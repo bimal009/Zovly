@@ -4,6 +4,7 @@ import {
   timestamp,
   uuid,
   integer,
+  numeric,
   jsonb,
   index,
   unique,
@@ -28,8 +29,8 @@ export const productVariants = pgTable(
 
     attributes: jsonb("attributes"),
 
-    price: integer("price"), // selling price override; null → use product.price
-    costPrice: integer("cost_price"), // what business paid (never shown to customer)
+    price: numeric("price", { precision: 12, scale: 2 }), // selling price override; null → use product.price
+    costPrice: numeric("cost_price", { precision: 12, scale: 2 }), // what business paid (never shown to customer)
     discount: integer("discount"), // override; null → use product.discount
 
     stockQty: integer("stock_qty").notNull().default(0),

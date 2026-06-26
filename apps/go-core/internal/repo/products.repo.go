@@ -37,12 +37,12 @@ func NewProductRepo(db *sqlx.DB) ProductRepo {
 func (r *productRepo) Create(ctx context.Context, tx *sqlx.Tx, input models.CreateProductInput) (*models.Product, error) {
 	const q = `
 		INSERT INTO products (
-			business_id, name, description, sku, status, tags, attributes,
+			business_id, category_id, name, description, sku, status, tags, attributes,
 			price, cost_price, discount, currency,
 			stock_qty, low_stock_threshold,
 			images
 		) VALUES (
-			:business_id, :name, :description, :sku, :status, :tags, :attributes,
+			:business_id, :category_id, :name, :description, :sku, :status, :tags, :attributes,
 			:price, :cost_price, :discount, :currency,
 			:stock_qty, :low_stock_threshold,
 			:images
@@ -60,6 +60,7 @@ func (r *productRepo) Create(ctx context.Context, tx *sqlx.Tx, input models.Crea
 
 	rows, err := sqlx.NamedQueryContext(ctx, tx, q, map[string]any{
 		"business_id":         input.BusinessID,
+		"category_id":         input.CategoryID,
 		"name":                input.Name,
 		"description":         input.Description,
 		"sku":                 input.SKU,
@@ -226,7 +227,7 @@ func (r *productRepo) Update(ctx context.Context, tx *sqlx.Tx, id, businessID st
 		fields["name"] = *input.Name
 	}
 
-	if input.CategoryID != nil {
+	if input.CategoryID != nil && *input.CategoryID != "" {
 		fields["category_id"] = *input.CategoryID
 	}
 	if input.Description != nil {

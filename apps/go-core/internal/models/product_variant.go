@@ -51,10 +51,10 @@ type ProductVariant struct {
 	// structured option values — { "color": "red", "size": "M" }
 	Attributes json.RawMessage `db:"attributes" json:"attributes,omitempty"`
 
-	// Pricing (cents) — null means inherit the parent product's value
-	Price     *int `db:"price"      json:"price,omitempty"`
-	CostPrice *int `db:"cost_price" json:"cost_price,omitempty"` // never exposed to customer
-	Discount  *int `db:"discount"   json:"discount,omitempty"`
+	// Pricing — null means inherit the parent product's value
+	Price     *float64 `db:"price"      json:"price,omitempty"`
+	CostPrice *float64 `db:"cost_price" json:"cost_price,omitempty"` // never exposed to customer
+	Discount  *int     `db:"discount"   json:"discount,omitempty"`
 
 	// Inventory
 	StockQty          int  `db:"stock_qty"           json:"stock_qty"`
@@ -78,9 +78,9 @@ type CreateProductVariantInput struct {
 
 	Attributes json.RawMessage `json:"attributes"`
 
-	Price     *int `json:"price"      validate:"omitempty,gt=0"`
-	CostPrice *int `json:"cost_price" validate:"omitempty,gt=0"`
-	Discount  *int `json:"discount"   validate:"omitempty,min=0,max=100"`
+	Price     *float64 `json:"price"      validate:"omitempty,gt=0"`
+	CostPrice *float64 `json:"cost_price" validate:"omitempty,gt=0"`
+	Discount  *int     `json:"discount"   validate:"omitempty,min=0,max=100"`
 
 	StockQty          int  `json:"stock_qty"           validate:"min=0"`
 	LowStockThreshold *int `json:"low_stock_threshold" validate:"omitempty,min=0"`
@@ -97,9 +97,9 @@ type UpdateProductVariantInput struct {
 
 	Attributes json.RawMessage `json:"attributes"`
 
-	Price     *int `json:"price"      validate:"omitempty,gt=0"`
-	CostPrice *int `json:"cost_price" validate:"omitempty,gt=0"`
-	Discount  *int `json:"discount"   validate:"omitempty,min=0,max=100"`
+	Price     *float64 `json:"price"      validate:"omitempty,gt=0"`
+	CostPrice *float64 `json:"cost_price" validate:"omitempty,gt=0"`
+	Discount  *int     `json:"discount"   validate:"omitempty,min=0,max=100"`
 
 	StockQty          *int `json:"stock_qty"           validate:"omitempty,min=0"`
 	LowStockThreshold *int `json:"low_stock_threshold" validate:"omitempty,min=0"`

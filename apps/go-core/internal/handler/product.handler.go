@@ -66,6 +66,10 @@ func (h *ProductHandler) Create(c *gin.Context) {
 
 	product, err := h.productService.Create(c.Request.Context(), req)
 	if err != nil {
+		if errors.Is(err, service.ErrCategoryRequired) || errors.Is(err, service.ErrCategoryNotFound) {
+			c.JSON(http.StatusBadRequest, responses.BadRequest(err.Error()))
+			return
+		}
 		c.JSON(http.StatusInternalServerError, responses.InternalServerError(err.Error()))
 		return
 	}
@@ -129,6 +133,31 @@ func (h *ProductHandler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, responses.Paginated("products fetched successfully", products, len(products), limit, offset))
 }
 
+// GetByIDInternal fetches a single product by id for internal service-to-service
+// calls (e.g. the AI service). businessID comes from the query string since there
+// is no business middleware on the internal route group.
+func (h *ProductHandler) GetByIDInternal(c *gin.Context) {
+	businessID := c.Query("businessID")
+	if businessID == "" {
+		c.JSON(http.StatusBadRequest, responses.BadRequest("businessID is required"))
+		return
+	}
+
+	id := c.Param("id")
+
+	product, err := h.productService.GetByID(c.Request.Context(), id, businessID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, responses.InternalServerError(err.Error()))
+		return
+	}
+	if product == nil {
+		c.JSON(http.StatusNotFound, responses.NotFound("product not found"))
+		return
+	}
+
+	c.JSON(http.StatusOK, responses.Success("product fetched successfully", product))
+}
+
 func (h *ProductHandler) Count(c *gin.Context) {
 	businessID := c.Query("businessID")
 	if businessID == "" {
@@ -166,6 +195,10 @@ func (h *ProductHandler) Update(c *gin.Context) {
 	if err != nil {
 		if errors.Is(err, service.ErrProductNotFound) {
 			c.JSON(http.StatusNotFound, responses.NotFound("product not found"))
+			return
+		}
+		if errors.Is(err, service.ErrCategoryRequired) || errors.Is(err, service.ErrCategoryNotFound) {
+			c.JSON(http.StatusBadRequest, responses.BadRequest(err.Error()))
 			return
 		}
 		c.JSON(http.StatusInternalServerError, responses.InternalServerError(err.Error()))

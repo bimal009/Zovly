@@ -4,6 +4,7 @@ import {
   timestamp,
   uuid,
   integer,
+  numeric,
   jsonb,
   index,
   pgEnum,
@@ -46,8 +47,8 @@ export const products = pgTable(
     // fed into RAG / AI DM context alongside description + tags
     attributes: jsonb("attributes"),
 
-    price: integer("price").notNull(), // selling price — what customer pays
-    costPrice: integer("cost_price"), // what business paid (never shown to customer)
+    price: numeric("price", { precision: 12, scale: 2 }).notNull(), // selling price — what customer pays
+    costPrice: numeric("cost_price", { precision: 12, scale: 2 }), // what business paid (never shown to customer)
     discount: integer("discount").notNull().default(0), // percentage 0-100
     currency: text("currency").notNull().default("NPR"),
 
