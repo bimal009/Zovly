@@ -1,7 +1,7 @@
-import json
 import os
 import uuid
 from dataclasses import dataclass
+from typing import Optional
 
 import requests
 from dotenv import load_dotenv
@@ -11,6 +11,71 @@ load_dotenv()
 
 API_BASE_URL = os.getenv("API_BASE_URL")
 INTERNAL_TOKEN = os.getenv("INTERNAL_TOKEN")
+
+
+def _format_money(amount: float, currency: str) -> str:
+    """Prices are stored as the actual display amount (not minor units), so no
+    conversion. Renders with a thousands separator and drops a redundant .00."""
+    value = amount or 0
+    body = f"{value:,.0f}" if value == int(value) else f"{value:,.2f}"
+    return f"{currency} {body}"
+
+
+def _price_text(price: Optional[float], discount: Optional[int], currency: str) -> Optional[str]:
+    if not price:
+        return None
+    if discount and discount > 0:
+        final = price * (1 - discount / 100)
+        return f"{_format_money(final, currency)} ({discount}% off, was {_format_money(price, currency)})"
+    return _format_money(price, currency)
+
+
+def _stock_text(qty) -> str:
+    try:
+        q = int(qty)
+    except (TypeError, ValueError):
+        return "Stock unknown"
+    return f"In stock ({q} left)" if q > 0 else "Out of stock"
+
+
+def _format_product_details(p: dict) -> str:
+    """Render the product as a clean, human-readable summary so the model never
+    has to parse JSON or do cents→currency arithmetic. cost_price is never shown."""
+    currency = p.get("currency") or "NPR"
+    lines = [f"Product: {p.get('name', '')}"]
+
+    if p.get("description"):
+        lines.append(p["description"])
+
+    price = _price_text(p.get("price"), p.get("discount") or 0, currency)
+    if price:
+        lines.append(f"Price: {price}")
+    lines.append(_stock_text(p.get("stock_qty")))
+
+    if p.get("tags"):
+        lines.append("Tags: " + ", ".join(p["tags"]))
+
+    variants = p.get("variants") or []
+    if variants:
+        lines.append("Variants:")
+        for v in variants:
+            # null variant price/discount inherit the parent product's value
+            vprice = v.get("price") if v.get("price") is not None else p.get("price")
+            vdisc = v.get("discount") if v.get("discount") is not None else (p.get("discount") or 0)
+            ptxt = _price_text(vprice, vdisc, currency)
+            detail = f" — {ptxt}" if ptxt else ""
+            lines.append(f"- {v.get('name', 'Variant')}{detail} — {_stock_text(v.get('stock_qty'))}")
+
+    # Image URLs on their own lines, prefixed so the Go _allowed_image_urls regex
+    # still captures them.
+    images = list(p.get("images") or [])
+    for v in variants:
+        images.extend(v.get("images") or [])
+    for url in images:
+        if url:
+            lines.append(f"IMAGE: {url}")
+
+    return "\n".join(lines)
 
 
 @dataclass
@@ -150,7 +215,8 @@ def get_product_details(
 
     Use this when the customer asks about a specific product's price, availability, or options.
     Pass the source_id shown next to that product in the retrieved context (e.g. "source_id: abc").
-    Prices are in minor units (cents) — divide by 100 for the display amount.
+    Returns a ready-to-read summary: prices are already in the display currency, stock is
+    spelled out, and any product photos are listed as `IMAGE: <url>` lines.
     """
 
     business_id = runtime.context.business_id
@@ -187,7 +253,7 @@ def get_product_details(
         if not product:
             return "Product not found."
 
-        return json.dumps(product, ensure_ascii=False)
+        return _format_product_details(product)
 
     except requests.HTTPError:
         return f"HTTP {response.status_code}: {response.text}"

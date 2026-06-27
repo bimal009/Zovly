@@ -13,6 +13,7 @@ import (
 	"github.com/bimal009/Zovly/internal/models"
 	repository "github.com/bimal009/Zovly/internal/repo"
 	"github.com/jmoiron/sqlx"
+	"github.com/pgvector/pgvector-go"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -34,7 +35,7 @@ type ProductService interface {
 	Delete(ctx context.Context, id, businessID string) error
 	AdjustStock(ctx context.Context, tx sqlx.ExtContext, id, businessID string, delta int) (*models.Product, error)
 	LowStock(ctx context.Context, businessID string) ([]models.Product, error)
-	Search(ctx context.Context, businessID string, query string) ([]models.Product, error)
+	HybridSearch(ctx context.Context, businessID, query string, vec pgvector.Vector) ([]models.ProductSearchCandidate, error)
 }
 
 type productService struct {
@@ -73,18 +74,22 @@ func NewProductService(
 	}
 }
 
-func (s *productService) Search(ctx context.Context, businessID string, query string) ([]models.Product, error) {
+// HybridSearch fuses semantic (pgvector), full-text, and trigram rankings via
+// RRF and returns candidates for reranking. The caller supplies the query vector
+// (embedded with the e5 `query:` prefix); the worker already has it, so we avoid
+// a redundant embed round-trip.
+func (s *productService) HybridSearch(ctx context.Context, businessID, query string, vec pgvector.Vector) ([]models.ProductSearchCandidate, error) {
 	if strings.TrimSpace(query) == "" {
-		return []models.Product{}, nil
+		return []models.ProductSearchCandidate{}, nil
 	}
 
-	products, err := s.productRepo.GetBySearch(ctx, businessID, query)
+	candidates, err := s.productRepo.HybridSearch(ctx, businessID, query, vec)
 	if err != nil {
-		s.logger.Error("product search failed", "business_id", businessID, "query", query, "error", err)
+		s.logger.Error("product hybrid search failed", "business_id", businessID, "query", query, "error", err)
 		return nil, err
 	}
 
-	return products, nil
+	return candidates, nil
 }
 func (s *productService) validateCategory(ctx context.Context, businessID string, categoryID *string, required bool) error {
 	if categoryID == nil || *categoryID == "" {
@@ -120,7 +125,8 @@ func lowStockKey(businessID string) string {
 func activeProductKey(businessID, conversationID string) string {
 	return fmt.Sprintf("active_product:%s:%s", businessID, conversationID)
 }
-func buildProductKnowledgePassage(name string, description *string, tags []string, attributes json.RawMessage, variantNames []string) string {
+
+func buildProductKnowledgePassage(name string, description *string, tags []string) string {
 	var b strings.Builder
 
 	fmt.Fprintf(&b, "Product: %s.", name)
@@ -131,35 +137,8 @@ func buildProductKnowledgePassage(name string, description *string, tags []strin
 	if len(tags) > 0 {
 		fmt.Fprintf(&b, " Tags: %s.", strings.Join(tags, ", "))
 	}
-	if a := formatAttributes(attributes); a != "" {
-		fmt.Fprintf(&b, " Attributes: %s.", a)
-	}
-	if len(variantNames) > 0 {
-		fmt.Fprintf(&b, " Variants: %s.", strings.Join(variantNames, ", "))
-	}
 
 	return strings.TrimSpace(b.String())
-}
-
-func variantDisplayName(name string, attrs json.RawMessage) string {
-	if a := formatAttributes(attrs); a != "" {
-		return fmt.Sprintf("%s (%s)", name, a)
-	}
-	return name
-}
-func formatAttributes(raw json.RawMessage) string {
-	if len(raw) == 0 {
-		return ""
-	}
-	var m map[string]any
-	if err := json.Unmarshal(raw, &m); err != nil {
-		return ""
-	}
-	parts := make([]string, 0, len(m))
-	for k, val := range m {
-		parts = append(parts, fmt.Sprintf("%s: %v", k, val))
-	}
-	return strings.Join(parts, ", ")
 }
 
 func (s *productService) invalidateBusinessCache(ctx context.Context, businessID string) {
@@ -176,13 +155,12 @@ func (s *productService) Create(ctx context.Context, input models.CreateProductI
 		return nil, err
 	}
 
-	variantNames := make([]string, 0, len(input.Variants))
-	for i := range input.Variants {
-		variantNames = append(variantNames, variantDisplayName(input.Variants[i].Name, input.Variants[i].Attributes))
-	}
-	knowledgePassage := buildProductKnowledgePassage(input.Name, input.Description, input.Tags, input.Attributes, variantNames)
+	knowledgePassage := buildProductKnowledgePassage(input.Name, input.Description, input.Tags)
 
-	embedChunks, err := s.embedder.Embed(ctx, knowledgePassage, "passage")
+	// A product is atomic — embed the whole passage as a single vector (one
+	// knowledge_chunks row per product). Only a very long passage is chunked,
+	// and then the name is prepended so no chunk is orphaned.
+	embedChunks, err := s.embedder.Embed(ctx, knowledgePassage, "passage", false, input.Name)
 	if err != nil {
 		s.logger.Error("product embed failed", "name", input.Name, "error", err)
 		return nil, fmt.Errorf("embed product: %w", err)
@@ -342,18 +320,11 @@ func (s *productService) Update(ctx context.Context, id, businessID string, inpu
 	if input.Tags != nil {
 		tags = input.Tags
 	}
-	attributes := current.Attributes
-	if input.Attributes != nil {
-		attributes = input.Attributes
-	}
-	variantNames := make([]string, 0, len(input.Variants))
-	for i := range input.Variants {
-		variantNames = append(variantNames, variantDisplayName(input.Variants[i].Name, input.Variants[i].Attributes))
-	}
 
-	knowledgePassage := buildProductKnowledgePassage(name, description, tags, attributes, variantNames)
+	knowledgePassage := buildProductKnowledgePassage(name, description, tags)
 
-	embedChunks, err := s.embedder.Embed(ctx, knowledgePassage, "passage")
+	// One vector / one knowledge_chunks row per product (see Create).
+	embedChunks, err := s.embedder.Embed(ctx, knowledgePassage, "passage", false, name)
 	if err != nil {
 		s.logger.Error("product embed failed", "id", id, "error", err)
 		return nil, fmt.Errorf("embed product: %w", err)
@@ -544,18 +515,42 @@ func (s *productService) ListByCategoryInternal(ctx context.Context, businessID,
 
 func (s *productService) GetActiveProduct(ctx context.Context, businessID, conversationID string) (*models.Product, error) {
 	cached, err := s.rdb.Get(ctx, activeProductKey(businessID, conversationID)).Result()
-	if err == redis.Nil {
-		return nil, nil
-	}
-	if err != nil {
+	if err == nil {
+		var product models.Product
+		if uerr := json.Unmarshal([]byte(cached), &product); uerr == nil {
+			return &product, nil
+		}
+		s.logger.Warn("active product unmarshal failed", "conversation_id", conversationID)
+		// fall through to DB on a corrupt cache entry
+	} else if err != redis.Nil {
 		s.logger.Warn("active product cache get failed", "conversation_id", conversationID, "error", err)
-		return nil, err
 	}
 
-	var product models.Product
-	if err := json.Unmarshal([]byte(cached), &product); err != nil {
-		s.logger.Warn("active product unmarshal failed", "conversation_id", conversationID, "error", err)
+	// Redis miss (eviction / restart / TTL lapse) — fall back to the active
+	// product persisted on the conversation row, then repopulate the cache so
+	// follow-ups like "kati ho?" keep working.
+	conv, err := s.conversationRepo.GetByID(ctx, conversationID, businessID)
+	if err != nil {
+		s.logger.Warn("active product conversation load failed", "conversation_id", conversationID, "error", err)
 		return nil, nil
 	}
-	return &product, nil
+	if conv == nil || conv.ActiveProductID == nil || *conv.ActiveProductID == "" {
+		return nil, nil
+	}
+
+	product, err := s.productRepo.GetByID(ctx, *conv.ActiveProductID, businessID)
+	if err != nil {
+		s.logger.Error("active product reload failed", "conversation_id", conversationID, "product_id", *conv.ActiveProductID, "error", err)
+		return nil, nil
+	}
+	if product == nil {
+		return nil, nil
+	}
+
+	if data, merr := json.Marshal(product); merr == nil {
+		if serr := s.rdb.Set(ctx, activeProductKey(businessID, conversationID), data, constants.TTLDay).Err(); serr != nil {
+			s.logger.Warn("active product cache repopulate failed", "conversation_id", conversationID, "error", serr)
+		}
+	}
+	return product, nil
 }

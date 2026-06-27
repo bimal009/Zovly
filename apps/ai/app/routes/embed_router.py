@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, Optional
 from fastapi import APIRouter
 from pydantic import BaseModel
 
@@ -20,7 +20,11 @@ def embed_faq(req: FaqRequest):
 class EmbedRequest(BaseModel):
     text: str
     kind: Literal["passage", "query"] = "passage"
+    # chunk=False embeds the whole text as a single vector (atomic items like
+    # products). prefix is prepended to chunks only if a long passage is split.
+    chunk: bool = True
+    prefix: Optional[str] = None
 
 @embed_router.post("/embed", response_model=list[EmbeddedChunk])
 def embed_text(req: EmbedRequest):
-    return embedding(req.text, req.kind)
+    return embedding(req.text, req.kind, req.chunk, req.prefix)

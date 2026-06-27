@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -13,16 +12,24 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/bimal009/Zovly/internal/config"
 	"github.com/bimal009/Zovly/internal/embed"
 	"github.com/bimal009/Zovly/internal/models"
 	repository "github.com/bimal009/Zovly/internal/repo"
 	"github.com/bimal009/Zovly/internal/service"
+	"github.com/bimal009/Zovly/internal/task"
 	"github.com/bimal009/Zovly/pkg/utils"
+	"github.com/hibiken/asynq"
 	"github.com/jmoiron/sqlx"
 	"github.com/pgvector/pgvector-go"
 	"github.com/redis/go-redis/v9"
+)
+
+const (
+	knowledgeScoreThreshold = 0.78
+	pastChatScoreThreshold  = 0.86
 )
 
 type AIWorker struct {
@@ -37,6 +44,7 @@ type AIWorker struct {
 	httpClient           *http.Client
 	cfg                  config.Config
 	embedder             *embed.Client
+	queue                *task.Client // for re-scheduling the debounce-gap drain
 }
 
 func NewAIWorker(
@@ -49,6 +57,7 @@ func NewAIWorker(
 	credentialRepo repository.AppCredentialRepo,
 	cfg config.Config,
 	db *sqlx.DB,
+	q *task.Client,
 ) *AIWorker {
 	return &AIWorker{
 		chatService:          chatService,
@@ -62,95 +71,46 @@ func NewAIWorker(
 		db:                   db,
 		httpClient:           &http.Client{Timeout: 60 * time.Second},
 		embedder:             embed.New(cfg.App.AIServiceURL),
+		queue:                q,
 	}
 }
 
-func (w *AIWorker) Run(ctx context.Context) {
-	if err := w.rdb.XGroupCreateMkStream(ctx, "chat:messages", "ai-workers", "0").Err(); err != nil {
-		w.log.Warn("consumer group setup", "info", err.Error())
-	}
-
-	w.log.Info("ai worker started", "stream", "chat:messages", "group", "ai-workers")
-
-	for {
-		select {
-		case <-ctx.Done():
-			w.log.Info("ai worker stopped")
-			return
-		default:
-		}
-
-		results, err := w.rdb.XReadGroup(ctx, &redis.XReadGroupArgs{
-			Group:    "ai-workers",
-			Consumer: "worker-1",
-			Streams:  []string{"chat:messages", ">"},
-			Count:    10,
-			Block:    5 * time.Second,
-		}).Result()
-
-		if err != nil {
-			if !errors.Is(err, redis.Nil) {
-				w.log.Error("stream read failed", "err", err)
-			}
-			continue
-		}
-
-		if len(results) == 0 || len(results[0].Messages) == 0 {
-			continue
-		}
-
-		w.log.Info("messages received from stream", "count", len(results[0].Messages))
-
-		for _, msg := range results[0].Messages {
-			if err := w.processAndReply(ctx, msg); err != nil {
-				w.log.Error("process failed", "id", msg.ID, "err", err)
-				continue
-			}
-			w.rdb.XAck(ctx, "chat:messages", "ai-workers", msg.ID)
-		}
-	}
+// Register wires this handler onto an asynq server. Call once at startup.
+func (w *AIWorker) Register(srv *task.Server) {
+	srv.Register(task.TypeChatReply, w.HandleChatReply)
 }
 
-func (w *AIWorker) processAndReply(ctx context.Context, msg redis.XMessage) error {
-	conversationID, _ := msg.Values["conversation_id"].(string)
-	businessID, _ := msg.Values["business_id"].(string)
-	messageID, _ := msg.Values["message_id"].(string)
-	if conversationID == "" || businessID == "" {
-		return fmt.Errorf("malformed stream entry: missing ids")
-	}
-
-	w.log.Info("processing message", "conversation_id", conversationID, "message_id", messageID)
-
-	// debounce lock — TTL generously exceeds worst-case processing
-	// (15s sleep + media resolution + embed + search + Claude)
-	lockKey := fmt.Sprintf("processing:%s", conversationID)
-	locked, err := w.rdb.SetNX(ctx, lockKey, "1", 90*time.Second).Result()
+// HandleChatReply is the asynq handler. asynq calls it once per debounced task,
+// on its own goroutine, with a context already bounded by the task timeout.
+//
+// Error contract:
+//   - return nil               → task done, removed.
+//   - return err               → asynq retries with backoff; after MaxRetry the
+//     task is archived (the dead-letter equivalent, visible in asynqmon).
+//   - return ...asynq.SkipRetry → permanent failure, archived immediately.
+func (w *AIWorker) HandleChatReply(ctx context.Context, t *asynq.Task) error {
+	p, err := task.ParseChatReplyPayload(t)
 	if err != nil {
-		return fmt.Errorf("acquire lock: %w", err)
+		// Unusable payload — never going to succeed, so skip retries.
+		return fmt.Errorf("%v: %w", err, asynq.SkipRetry)
 	}
-	if !locked {
-		w.log.Info("conversation already being processed, skipping", "conversation_id", conversationID)
-		return nil
+	if p.BusinessID == "" || p.ConversationID == "" {
+		return fmt.Errorf("missing ids in payload: %w", asynq.SkipRetry)
 	}
-	defer w.rdb.Del(ctx, lockKey)
 
-	// debounce — wait for more messages in the burst (same window for all types,
-	// since media content is resolved below rather than waited-for)
-	time.Sleep(15 * time.Second)
+	conversationID := p.ConversationID
+	businessID := p.BusinessID
+	w.log.Info("processing chat reply", "conversation_id", conversationID)
 
 	unreplied, err := w.messageRepo.GetUnrepliedInbound(ctx, conversationID)
 	if err != nil {
 		return fmt.Errorf("get unreplied inbound: %w", err)
 	}
 	if len(unreplied) == 0 {
-		w.log.Info("no unreplied messages, skipping", "conversation_id", conversationID)
+		w.log.Debug("no unreplied messages, nothing to do", "conversation_id", conversationID)
 		return nil
 	}
-	w.log.Info("unreplied messages found", "conversation_id", conversationID, "count", len(unreplied))
 
-	// resolve media → text for rows the webhook stored without content.
-	// This is where image-describe / audio-transcribe happens (async, off the
-	// webhook path), and the result is persisted so retries don't reprocess.
 	for i := range unreplied {
 		m := &unreplied[i]
 		if (m.Content != nil && *m.Content != "") || m.MediaUrl == nil || m.MediaType == nil {
@@ -165,8 +125,8 @@ func (w *AIWorker) processAndReply(ctx context.Context, msg redis.XMessage) erro
 				w.log.Warn("describe image failed", "message_id", m.ID, "err", derr)
 			}
 		case models.MediaTypeAudio:
-			if t, terr := w.chatService.GetAudioDetails(ctx, *m.MediaUrl); terr == nil {
-				text = t
+			if tr, terr := w.chatService.GetAudioDetails(ctx, *m.MediaUrl); terr == nil {
+				text = tr
 			} else {
 				w.log.Warn("transcribe audio failed", "message_id", m.ID, "err", terr)
 			}
@@ -186,10 +146,21 @@ func (w *AIWorker) processAndReply(ctx context.Context, msg redis.XMessage) erro
 		}
 	}
 	if len(parts) == 0 {
-		w.log.Info("no resolvable content, skipping", "conversation_id", conversationID)
+		w.log.Debug("no resolvable content, nothing to do", "conversation_id", conversationID)
 		return nil
 	}
 	combined := strings.Join(parts, "\n")
+
+	// Newest message + its id: the cutoff detects inbound that lands mid-process,
+	// and the id keys the stored passage embedding.
+	var cutoff time.Time
+	var newestMessageID string
+	for _, m := range unreplied {
+		if m.SentAt.After(cutoff) {
+			cutoff = m.SentAt
+			newestMessageID = m.ID
+		}
+	}
 
 	const maxQueryChars = 2000
 	searchText := combined
@@ -197,44 +168,60 @@ func (w *AIWorker) processAndReply(ctx context.Context, msg redis.XMessage) erro
 		searchText = searchText[:maxQueryChars]
 	}
 
-	w.log.Info("embedding message", "conversation_id", conversationID, "chars", len(searchText))
-	queryVec, err := w.embedder.EmbedChat(ctx, searchText, "query")
+	retrievalText := lastSubstantiveMessage(unreplied)
+
+	// Store the passage embedding for the cross-conversation past-chat corpus —
+	// only for substantive bursts, so greeting/emoji-only turns don't pollute it.
+	if retrievalText != "" {
+		if passageVec, perr := w.embedder.EmbedChat(ctx, searchText, "passage"); perr != nil {
+			w.log.Error("embed passage failed", "conversation_id", conversationID, "err", perr)
+		} else {
+			emb := models.CreateMessageEmbedding{
+				MessageID:      newestMessageID,
+				BusinessID:     businessID,
+				ConversationID: conversationID,
+				Content:        combined,
+				Embedding:      passageVec,
+			}
+			if err := w.messageEmbeddingRepo.CreateAndMarkVectorized(ctx, emb); err != nil {
+				w.log.Error("store embedding failed", "conversation_id", conversationID, "err", err)
+			}
+		}
+	}
+
+	var activeProductID string
+	if activeProduct, aerr := w.productService.GetActiveProduct(ctx, businessID, conversationID); aerr != nil {
+		w.log.Error("active product fetch failed", "conversation_id", conversationID, "err", aerr)
+	} else if activeProduct != nil {
+		activeProductID = activeProduct.ID
+	}
+
+	if retrievalText == "" {
+		retrievalText = searchText
+	}
+	if len(retrievalText) > maxQueryChars {
+		retrievalText = retrievalText[:maxQueryChars]
+	}
+
+	queryVec, err := w.embedder.EmbedChat(ctx, retrievalText, "query")
 	if err != nil {
 		return fmt.Errorf("embed query: %w", err)
 	}
 
-	passageVec, err := w.embedder.EmbedChat(ctx, searchText, "passage")
-	if err != nil {
-		w.log.Error("embed passage failed", "conversation_id", conversationID, "err", err)
-	} else {
-		emb := models.CreateMessageEmbedding{
-			MessageID:      messageID,
-			BusinessID:     businessID,
-			ConversationID: conversationID,
-			Content:        combined,
-			Embedding:      passageVec,
-		}
-		if err := w.messageEmbeddingRepo.CreateAndMarkVectorized(ctx, emb); err != nil {
-			w.log.Error("store embedding failed", "conversation_id", conversationID, "err", err)
-		} else {
-			w.log.Info("embedding stored", "message_id", messageID)
-		}
-	}
-
-	w.log.Info("fetching context", "conversation_id", conversationID, "business_id", businessID)
-
 	knowledge, err := w.searchKnowledge(ctx, businessID, queryVec, 5)
 	if err != nil {
 		w.log.Error("knowledge search failed", "err", err)
+	}
+
+	if products, perr := w.searchProducts(ctx, businessID, retrievalText, queryVec, 10); perr != nil {
+		w.log.Error("product search failed", "err", perr)
 	} else {
-		w.log.Info("knowledge chunks", "count", len(knowledge))
+		knowledge = append(knowledge, products...)
 	}
 
 	pastChats, err := w.searchPastChats(ctx, businessID, conversationID, queryVec, 3)
 	if err != nil {
 		w.log.Error("past chat search failed", "err", err)
-	} else {
-		w.log.Info("past chat chunks", "count", len(pastChats))
 	}
 
 	business, err := w.getBusiness(ctx, businessID)
@@ -245,30 +232,36 @@ func (w *AIWorker) processAndReply(ctx context.Context, msg redis.XMessage) erro
 	history, err := w.getConversationHistory(ctx, conversationID, 10)
 	if err != nil {
 		w.log.Error("conversation history fetch failed", "err", err)
-	} else {
-		w.log.Info("history loaded", "conversation_id", conversationID, "messages", len(history))
 	}
 
 	customer, err := w.getCustomerProfile(ctx, conversationID)
 	if err != nil {
-		// can't send a reply without the platform + recipient id — fail (retryable)
-		w.log.Error("customer profile fetch failed", "err", err)
+		// Can't send without platform + recipient id — transient, so retry.
 		return fmt.Errorf("customer profile required: %w", err)
 	}
-	w.log.Info("customer loaded", "contact_id", customer.ContactID, "platform", customer.Platform)
 
-	// the product currently under discussion (if any, cached in Redis with 24h
-	// TTL) — lets the AI resolve follow-ups like "how much?" without re-searching
-	var activeProductID string
-	if activeProduct, aerr := w.productService.GetActiveProduct(ctx, businessID, conversationID); aerr != nil {
-		w.log.Error("active product fetch failed", "conversation_id", conversationID, "err", aerr)
-	} else if activeProduct != nil {
-		activeProductID = activeProduct.ID
-		w.log.Info("active product loaded", "conversation_id", conversationID, "active_product_id", activeProductID)
+	if err := w.trySend(ctx, customer.Platform, businessID, conversationID, customer.ContactID, combined, activeProductID, knowledge, pastChats, business, history, customer); err != nil {
+		return err
 	}
 
-	w.log.Info("handing off to trySend", "conversation_id", conversationID, "platform", customer.Platform)
-	return w.trySend(ctx, customer.Platform, businessID, conversationID, customer.ContactID, combined, activeProductID, knowledge, pastChats, business, history, customer)
+	// Debounce gap: a message can arrive after we read unreplied but before this
+	// task finishes; its webhook enqueue hit the still-active TaskID and was
+	// coalesced away. Re-check; if anything newer than `cutoff` landed, schedule a
+	// drain pass (separate task ID, so it enqueues even though we're still active).
+	if remaining, rerr := w.messageRepo.GetUnrepliedInbound(ctx, conversationID); rerr != nil {
+		w.log.Error("debounce re-check failed", "conversation_id", conversationID, "err", rerr)
+	} else {
+		for _, m := range remaining {
+			if m.SentAt.After(cutoff) {
+				w.log.Info("new inbound during processing — scheduling drain", "conversation_id", conversationID)
+				if eerr := w.queue.EnqueueReplyDrain(ctx, businessID, conversationID); eerr != nil {
+					w.log.Error("drain enqueue failed", "conversation_id", conversationID, "err", eerr)
+				}
+				break
+			}
+		}
+	}
+	return nil
 }
 
 func (w *AIWorker) callChatReply(
@@ -324,30 +317,170 @@ func (w *AIWorker) callChatReply(
 }
 
 func (w *AIWorker) searchKnowledge(ctx context.Context, businessID string, vec pgvector.Vector, k int) ([]models.KnowledgeChunk, error) {
+	// Over-fetch so that after de-duping by source_id we still have k distinct
+	// items. Products are excluded — they come from the dedicated hybrid path in
+	// searchProducts so the two routes can't disagree. This covers FAQ/policy/post.
+	const preDedupLimit = 15
 	query := `
 		SELECT content, source_type, source_id, 1 - (embedding <=> $1) AS score
 		FROM knowledge_chunks
-		WHERE business_id = $2
+		WHERE business_id = $2 AND source_type != 'product'
 		ORDER BY embedding <=> $1
 		LIMIT $3`
 
 	var results []models.KnowledgeChunk
-	if err := w.db.SelectContext(ctx, &results, query, vec, businessID, k); err != nil {
+	if err := w.db.SelectContext(ctx, &results, query, vec, businessID, preDedupLimit); err != nil {
 		return nil, err
 	}
 
-	for _, r := range results {
-		w.log.Info("knowledge candidate", "score", r.Score, "type", r.SourceType,
-			"content", r.Content[:min(50, len(r.Content))])
+	if w.log.Enabled(ctx, slog.LevelDebug) {
+		for _, r := range results {
+			w.log.Debug("knowledge candidate", "score", r.Score, "type", r.SourceType,
+				"content", r.Content[:min(50, len(r.Content))])
+		}
 	}
 
-	filtered := make([]models.KnowledgeChunk, 0, len(results))
+	seen := make(map[string]struct{}, len(results))
+	filtered := make([]models.KnowledgeChunk, 0, k)
 	for _, r := range results {
-		if r.Score >= 0.74 {
-			filtered = append(filtered, r)
+		if r.Score < knowledgeScoreThreshold {
+			continue
+		}
+		key := r.SourceType + ":" + r.SourceID
+		if r.SourceID != "" {
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+		}
+		filtered = append(filtered, r)
+		if len(filtered) >= k {
+			break
 		}
 	}
 	return filtered, nil
+}
+
+func isEmptyOrEmoji(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return true
+	}
+	for _, r := range s {
+		if unicode.IsLetter(r) || unicode.IsNumber(r) {
+			return false
+		}
+	}
+	return true
+}
+
+func lastSubstantiveMessage(msgs []models.Message) string {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Content == nil {
+			continue
+		}
+		c := strings.TrimSpace(*msgs[i].Content)
+		if c == "" || isEmptyOrEmoji(c) {
+			continue
+		}
+		return c
+	}
+	return ""
+}
+
+func (w *AIWorker) searchProducts(ctx context.Context, businessID, queryText string, queryVec pgvector.Vector, k int) ([]models.KnowledgeChunk, error) {
+	candidates, err := w.productService.HybridSearch(ctx, businessID, queryText, queryVec)
+	if err != nil {
+		return nil, err
+	}
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+
+	w.log.Info("before ranking", "candidates", candidates)
+
+	ordered := w.rerankProducts(ctx, queryText, candidates)
+	w.log.Info("after ranking", "candidates", ordered)
+
+	byID := make(map[string]models.ProductSearchCandidate, len(candidates))
+	for _, c := range candidates {
+		byID[c.SourceID] = c
+	}
+
+	out := make([]models.KnowledgeChunk, 0, k)
+	for i, id := range ordered {
+		if len(out) >= k {
+			break
+		}
+		c, ok := byID[id]
+		if !ok {
+			continue
+		}
+		out = append(out, models.KnowledgeChunk{
+			Content:    c.Passage,
+			SourceType: string(models.SourceProduct),
+			SourceID:   c.SourceID,
+			Score:      1.0 - float64(i)*0.001,
+		})
+	}
+	return out, nil
+}
+
+func (w *AIWorker) rerankProducts(ctx context.Context, query string, candidates []models.ProductSearchCandidate) []string {
+	fallback := func() []string {
+		ids := make([]string, len(candidates))
+		for i, c := range candidates {
+			ids[i] = c.SourceID
+		}
+		return ids
+	}
+
+	type rerankCand struct {
+		SourceID string `json:"source_id"`
+		Passage  string `json:"passage"`
+	}
+	payloadCands := make([]rerankCand, len(candidates))
+	for i, c := range candidates {
+		payloadCands[i] = rerankCand{SourceID: c.SourceID, Passage: c.Passage}
+	}
+
+	body, err := json.Marshal(map[string]any{"query": query, "candidates": payloadCands})
+	if err != nil {
+		w.log.Error("marshal rerank request failed", "err", err)
+		return fallback()
+	}
+
+	reqURL := w.cfg.App.AIServiceURL + "/api/v1/ml/chat/rerank"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(body))
+	if err != nil {
+		w.log.Error("build rerank request failed", "err", err)
+		return fallback()
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := w.httpClient.Do(req)
+	if err != nil {
+		w.log.Error("rerank call failed", "err", err)
+		return fallback()
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		w.log.Error("rerank returned non-200", "status", resp.StatusCode)
+		return fallback()
+	}
+
+	var result struct {
+		SourceIDs []string `json:"source_ids"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		w.log.Error("decode rerank response failed", "err", err)
+		return fallback()
+	}
+	if len(result.SourceIDs) == 0 {
+		return fallback()
+	}
+	return result.SourceIDs
 }
 
 func (w *AIWorker) searchPastChats(ctx context.Context, businessID, conversationID string, vec pgvector.Vector, k int) ([]models.PastChatChunk, error) {
@@ -365,7 +498,7 @@ func (w *AIWorker) searchPastChats(ctx context.Context, businessID, conversation
 
 	filtered := make([]models.PastChatChunk, 0, len(results))
 	for _, r := range results {
-		if r.Score >= 0.85 {
+		if r.Score >= pastChatScoreThreshold {
 			filtered = append(filtered, r)
 		}
 	}
@@ -425,19 +558,17 @@ func (w *AIWorker) trySend(
 		return nil
 	}
 
-	w.log.Info("calling AI service", "conversation_id", conversationID, "business_id", businessID)
 	reply, images, err := w.callChatReply(ctx, businessID, conversationID, message, activeProductID, knowledge, pastChats, business, history, customer)
 	if err != nil {
 		w.rdb.Decr(ctx, rateLimitKey)
-		return fmt.Errorf("chat reply: %w", err) // not acked → retried
+		return fmt.Errorf("chat reply: %w", err)
 	}
-	w.log.Info("AI reply received", "conversation_id", conversationID, "reply_len", len(reply), "images", len(images), "msg", reply)
+	w.log.Info("AI reply received", "conversation_id", conversationID, "reply_len", len(reply), "images", len(images))
 
 	pending := models.MessageStatusPending
 	aiSender := models.MessageSenderAI
 	tx, err := w.db.BeginTxx(ctx, nil)
 	if err != nil {
-		w.log.Error("begin tx failed", "conversation_id", conversationID, "err", err)
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	outbound, err := w.messageRepo.Create(ctx, tx, models.CreateMessage{
@@ -450,14 +581,11 @@ func (w *AIWorker) trySend(
 	})
 	if err != nil {
 		tx.Rollback()
-		w.log.Error("create outbound message failed", "conversation_id", conversationID, "err", err)
 		return fmt.Errorf("create outbound: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
-		w.log.Error("commit outbound message failed", "conversation_id", conversationID, "err", err)
 		return fmt.Errorf("commit outbound: %w", err)
 	}
-	w.log.Info("outbound message saved", "message_id", outbound.ID, "conversation_id", conversationID)
 
 	creds, err := w.credentialRepo.ListByApp(ctx, businessID, platform)
 	if err != nil || len(creds) == 0 {
@@ -481,7 +609,6 @@ func (w *AIWorker) trySend(
 		return nil
 	}
 
-	w.log.Info("sending reply via platform", "platform", platform, "recipient_id", recipientID)
 	platformMsgID, err := w.sendReply(ctx, platform, token, recipientID, reply)
 	if err != nil {
 		w.log.Error("platform send failed", "platform", platform, "conversation_id", conversationID, "err", err)
@@ -494,17 +621,12 @@ func (w *AIWorker) trySend(
 	w.messageRepo.UpdateStatus(ctx, outbound.ID, models.MessageStatusSent, platformMsgID, nil)
 	w.log.Info("ai reply sent", "conversation_id", conversationID, "platform_message_id", platformMsgID)
 
-	// send any product images the AI included, each as its own message
 	for _, imgURL := range images {
 		w.sendImageMessage(ctx, platform, businessID, conversationID, recipientID, token, imgURL)
 	}
-
 	return nil
 }
 
-// sendImageMessage persists and delivers a single image attachment. Failures are
-// logged and recorded on the message row but never abort the reply — the text
-// has already been sent successfully.
 func (w *AIWorker) sendImageMessage(ctx context.Context, platform, businessID, conversationID, recipientID, token, imgURL string) {
 	imageType := models.MediaTypeImage
 	sent := models.MessageStatusSent
@@ -535,7 +657,6 @@ func (w *AIWorker) sendImageMessage(ctx context.Context, platform, businessID, c
 		return
 	}
 
-	w.log.Info("sending image via platform", "platform", platform, "recipient_id", recipientID, "url", imgURL)
 	platformMsgID, err := w.sendImage(ctx, platform, token, recipientID, imgURL)
 	if err != nil {
 		w.log.Error("platform image send failed", "platform", platform, "conversation_id", conversationID, "err", err)

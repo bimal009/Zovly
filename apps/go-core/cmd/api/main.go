@@ -19,9 +19,11 @@ import (
 	"github.com/bimal009/Zovly/internal/middlewares"
 	repository "github.com/bimal009/Zovly/internal/repo"
 	"github.com/bimal009/Zovly/internal/service"
+	"github.com/bimal009/Zovly/internal/task"
 	"github.com/bimal009/Zovly/pkg/logger"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/hibiken/asynq"
 	"github.com/joho/godotenv"
 )
 
@@ -45,6 +47,17 @@ func main() {
 		log.Fatalf("failed to connect to redis: %v", err)
 	}
 	defer rdb.Close()
+
+	// Asynq connection. Parsed from the same Redis URL the app uses. If you want
+	// the queue isolated from your cache/locks (recommended), point it at a
+	// dedicated DB number — e.g. set the URL's path to /1.
+	asynqOpt, err := asynq.ParseRedisURI(cfg.Redis.Url)
+	if err != nil {
+		log.Fatalf("failed to parse redis uri for asynq: %v", err)
+	}
+
+	queueClient := task.NewClient(asynqOpt, slog)
+	defer queueClient.Close()
 
 	planRepo := repository.NewPlansRepo(db)
 	subRepo := repository.NewSubscriptionRepo(db)
@@ -74,7 +87,8 @@ func main() {
 	categoryService := service.NewCategoryService(rdb, slog, categoryRepo)
 	serviceService := service.NewServiceService(db, rdb, slog, serviceRepo)
 	faqService := service.NewFaqService(faqRepo, knowledgeRepo, slog, db, *cfg)
-	chatService := service.NewChatService(db, messageRepo, appCredentialRepo, messageEmbedRepo, conversationRepo, *cfg, rdb, slog)
+
+	chatService := service.NewChatService(db, messageRepo, appCredentialRepo, messageEmbedRepo, conversationRepo, *cfg, rdb, slog, queueClient)
 	facebookService := service.NewFacebookService(db, appCredentialRepo, appRepo, messageRepo, cfg, chatService, slog)
 	instagramService := service.NewInstagramService(db, appCredentialRepo, appRepo, messageRepo, cfg, slog, chatService)
 
@@ -125,8 +139,13 @@ func main() {
 	igWorker := workers.NewRefreshInstagramWorker(instagramService, slog)
 	go igWorker.Run(ctx)
 
-	aiWorker := workers.NewAIWorker(chatService, productService, slog, rdb, messageRepo, messageEmbedRepo, appCredentialRepo, *cfg, db)
-	go aiWorker.Run(ctx)
+	aiWorker := workers.NewAIWorker(chatService, productService, slog, rdb, messageRepo, messageEmbedRepo, appCredentialRepo, *cfg, db, queueClient)
+
+	queueServer := task.NewServer(asynqOpt, slog)
+	aiWorker.Register(queueServer)
+	if err := queueServer.Start(); err != nil {
+		log.Fatalf("failed to start asynq server: %v", err)
+	}
 
 	go func() {
 		slog.Info("server starting", "port", cfg.App.Port, "env", cfg.App.Env)
@@ -141,9 +160,11 @@ func main() {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
 
+	// Stop accepting new webhooks first, then drain in-flight queue tasks.
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		log.Printf("server forced shutdown: %v", err)
 	}
+	queueServer.Shutdown()
 
 	slog.Info("server exited")
 }

@@ -90,8 +90,16 @@ func (c *Client) post(ctx context.Context, path string, body []byte) (*http.Resp
 	return resp, nil
 }
 
-func (c *Client) Embed(ctx context.Context, text, kind string) ([]models.EmbeddedChunk, error) {
-	body, err := json.Marshal(map[string]string{"text": text, "kind": kind})
+// Embed embeds text via the AI service. Set chunk=false to embed the whole text
+// as a single vector (atomic items like products); prefix is prepended to chunks
+// only if a long passage still has to be split.
+func (c *Client) Embed(ctx context.Context, text, kind string, chunk bool, prefix string) ([]models.EmbeddedChunk, error) {
+	body, err := json.Marshal(map[string]any{
+		"text":   text,
+		"kind":   kind,
+		"chunk":  chunk,
+		"prefix": prefix,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("marshal embed request: %w", err)
 	}

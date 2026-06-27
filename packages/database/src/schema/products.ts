@@ -8,11 +8,23 @@ import {
   jsonb,
   index,
   pgEnum,
+  customType,
 } from "drizzle-orm/pg-core";
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import { business } from "./business";
 import { categories } from "./category";
 import { productVariants } from "./product-variants";
+
+// Postgres full-text search vector. Drizzle has no native tsvector type, so we
+// declare a thin custom type. The column is GENERATED ALWAYS (STORED) from
+// name + description + tags and indexed with GIN for `@@ websearch_to_tsquery`.
+// NOTE: requires `CREATE EXTENSION IF NOT EXISTS pg_trgm;` to be run once on the
+// database for the trigram index below (idx_products_name_trgm) to apply.
+const tsvector = customType<{ data: string }>({
+  dataType() {
+    return "tsvector";
+  },
+});
 
 // ─── Enums ───────────────────────────────────────────────────────────────────
 
@@ -57,6 +69,15 @@ export const products = pgTable(
 
     images: text("images").array().default([]),
 
+    // Lexical search vector — fused with semantic + trigram in the hybrid
+    // product-discovery search. Generated/stored so it stays in sync on write.
+    // NOTE: a GENERATED column requires an IMMUTABLE expression. array_to_string()
+    // is only STABLE, so instead of joining tags into the text we append them with
+    // array_to_tsvector() (IMMUTABLE) to the name+description vector.
+    searchTsv: tsvector("search_tsv").generatedAlwaysAs(
+      sql`to_tsvector('simple', coalesce(name, '') || ' ' || coalesce(description, '')) || array_to_tsvector(array_remove(coalesce(tags, '{}'::text[]), NULL))`,
+    ),
+
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at")
       .defaultNow()
@@ -69,6 +90,13 @@ export const products = pgTable(
     index("products_status_idx").on(table.status),
     index("products_sku_idx").on(table.sku),
     index("products_business_status_idx").on(table.businessId, table.status),
+    // Full-text (lexical) search over name/description/tags.
+    index("idx_products_search_tsv").using("gin", table.searchTsv),
+    // Trigram index on name — catches typos and Romanized spellings via `%`.
+    index("idx_products_name_trgm").using(
+      "gin",
+      sql`${table.name} gin_trgm_ops`,
+    ),
   ],
 );
 

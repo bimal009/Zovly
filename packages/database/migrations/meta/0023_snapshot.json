@@ -1,5 +1,5 @@
 {
-  "id": "aee8dbe3-0284-402b-893d-a038c570446e",
+  "id": "115b4c18-4e1e-4fee-a97b-a8058fc993a6",
   "prevId": "2a79b288-b7ae-4701-a340-0c39b73cc108",
   "version": "7",
   "dialect": "postgresql",
@@ -2711,6 +2711,16 @@
           "notNull": false,
           "default": "'{}'"
         },
+        "search_tsv": {
+          "name": "search_tsv",
+          "type": "tsvector",
+          "primaryKey": false,
+          "notNull": false,
+          "generated": {
+            "as": "to_tsvector('simple', coalesce(name, '') || ' ' || coalesce(description, '')) || array_to_tsvector(array_remove(coalesce(tags, '{}'::text[]), NULL))",
+            "type": "stored"
+          }
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -2806,6 +2816,36 @@
           "isUnique": false,
           "concurrently": false,
           "method": "btree",
+          "with": {}
+        },
+        "idx_products_search_tsv": {
+          "name": "idx_products_search_tsv",
+          "columns": [
+            {
+              "expression": "search_tsv",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "gin",
+          "with": {}
+        },
+        "idx_products_name_trgm": {
+          "name": "idx_products_name_trgm",
+          "columns": [
+            {
+              "expression": "\"name\" gin_trgm_ops",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "gin",
           "with": {}
         }
       },

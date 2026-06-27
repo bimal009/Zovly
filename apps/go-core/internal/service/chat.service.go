@@ -15,6 +15,7 @@ import (
 	"github.com/bimal009/Zovly/internal/config"
 	"github.com/bimal009/Zovly/internal/models"
 	repository "github.com/bimal009/Zovly/internal/repo"
+	"github.com/bimal009/Zovly/internal/task"
 	imagekit "github.com/imagekit-developer/imagekit-go/v2"
 	"github.com/imagekit-developer/imagekit-go/v2/option"
 	"github.com/jmoiron/sqlx"
@@ -33,7 +34,6 @@ type ChatService interface {
 	HandleUnprocessableAttachment(ctx context.Context, tx *sqlx.Tx, platform models.Platform, conv *models.Conversation, cred *models.AppCredential, pageID, mediaURL string, mediaType models.MessageMediaType, label, placeholder string)
 	HandleSharedLink(ctx context.Context, tx *sqlx.Tx, platform models.Platform, conv *models.Conversation, cred *models.AppCredential, pageToken string, attachment models.FacebookAttachment)
 
-	// called by the worker (async) to resolve media → text
 	GetImageDetails(ctx context.Context, fileURL string) (string, error)
 	GetAudioDetails(ctx context.Context, fileURL string) (string, error)
 
@@ -53,6 +53,7 @@ type chatService struct {
 	cfg               config.Config
 	httpClient        *http.Client
 	rdb               *redis.Client
+	queue             *task.Client
 	log               *slog.Logger
 }
 
@@ -65,6 +66,7 @@ func NewChatService(
 	cfg config.Config,
 	rdb *redis.Client,
 	log *slog.Logger,
+	queue *task.Client,
 ) ChatService {
 	return &chatService{
 		db:                db,
@@ -75,6 +77,7 @@ func NewChatService(
 		cfg:               cfg,
 		httpClient:        &http.Client{Timeout: 120 * time.Second},
 		rdb:               rdb,
+		queue:             queue,
 		log:               log,
 	}
 }
@@ -83,21 +86,15 @@ func (s *chatService) FindOrCreate(ctx context.Context, tx *sqlx.Tx, conv models
 	return s.conversationRepo.FindOrCreate(ctx, tx, conv)
 }
 
+// StreamMessage enqueues a debounced chat-reply task for the conversation. The
+// task ID is keyed on the conversation, so messages arriving within the debounce
+// window coalesce into a single reply pass instead of one task per message.
 func (s *chatService) StreamMessage(ctx context.Context, platform models.Platform, messageId, businessId, conversationId string, attachments bool) error {
-	if _, err := s.rdb.XAdd(ctx, &redis.XAddArgs{
-		Stream: "chat:messages",
-		Values: map[string]interface{}{
-			"message_id":      messageId,
-			"business_id":     businessId,
-			"conversation_id": conversationId,
-			"platform":        string(platform),
-			"attachments":     attachments,
-		},
-	}).Result(); err != nil {
-		s.log.Error("publish to stream failed", "err", err)
-		return fmt.Errorf("publish message to stream: %w", err)
+	if err := s.queue.EnqueueReply(ctx, businessId, conversationId); err != nil {
+		s.log.Error("enqueue reply failed", "err", err, "conversation_id", conversationId)
+		return fmt.Errorf("enqueue reply: %w", err)
 	}
-	s.log.Info("message published to stream", "message_id", messageId, "conversation_id", conversationId)
+	s.log.Info("reply enqueued", "message_id", messageId, "conversation_id", conversationId)
 	return nil
 }
 

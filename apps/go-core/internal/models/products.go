@@ -41,8 +41,21 @@ type Product struct {
 	Images   pq.StringArray  `db:"images" json:"images"`
 	Variants ProductVariants `db:"variants" json:"variants,omitempty"`
 
+	// Generated tsvector column used only by SQL (hybrid full-text search). Pulled
+	// in so `SELECT *` scans cleanly; never used in Go and never exposed via JSON.
+	SearchTSV string `db:"search_tsv" json:"-"`
+
 	CreatedAt time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt time.Time `db:"updated_at" json:"updated_at"`
+}
+
+// ProductSearchCandidate is one hybrid-search hit handed to the AI tool: the
+// product's id, name, and a short passage used downstream for reranking.
+type ProductSearchCandidate struct {
+	SourceID string  `db:"id"      json:"source_id"`
+	Name     string  `db:"name"    json:"name"`
+	Passage  string  `db:"passage" json:"passage"`
+	Score    float64 `db:"-"       json:"score"`
 }
 
 type CreateProductInput struct {

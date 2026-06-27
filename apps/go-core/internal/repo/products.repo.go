@@ -4,12 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/bimal009/Zovly/internal/models"
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
+	"github.com/pgvector/pgvector-go"
 )
 
 type ProductRepo interface {
@@ -22,7 +24,7 @@ type ProductRepo interface {
 	Delete(ctx context.Context, id, businessID string) error
 	AdjustStock(ctx context.Context, tx sqlx.ExtContext, id, businessID string, delta int) (*models.Product, error)
 	LowStock(ctx context.Context, businessID string) ([]models.Product, error)
-	GetBySearch(ctx context.Context, businessID string, search string) ([]models.Product, error)
+	HybridSearch(ctx context.Context, businessID, query string, vec pgvector.Vector) ([]models.ProductSearchCandidate, error)
 }
 
 type productRepo struct {
@@ -151,58 +153,148 @@ type ListProductsFilter struct {
 	page         int
 }
 
-func (r *productRepo) GetBySearch(ctx context.Context, businessID string, search string) ([]models.Product, error) {
-	if strings.TrimSpace(search) == "" {
-		return []models.Product{}, nil
+// Hybrid product search: fuses three signals over Reciprocal Rank Fusion.
+const (
+	hybridListLimit = 30 // candidates pulled per signal before fusion
+	hybridReturn    = 20 // fused candidates returned to the reranker
+	rrfK            = 60 // RRF damping constant
+)
+
+// HybridSearch fuses semantic (pgvector), full-text (tsvector), and trigram
+// (pg_trgm) rankings via RRF and returns the top fused candidates, each with a
+// short passage for downstream reranking. The query vector must be embedded with
+// the e5 `query:` prefix by the caller.
+func (r *productRepo) HybridSearch(ctx context.Context, businessID, query string, vec pgvector.Vector) ([]models.ProductSearchCandidate, error) {
+	if strings.TrimSpace(query) == "" {
+		return []models.ProductSearchCandidate{}, nil
 	}
 
-	query := `
-		SELECT
-			p.*,
-			COALESCE(
-				jsonb_agg(v.*) FILTER (WHERE v.id IS NOT NULL),
-				'[]'
-			) AS variants
-		FROM products p
-		LEFT JOIN product_variants v ON v.product_id = p.id
-		WHERE p.business_id = $1
-		  AND p.status = 'active'
-		  AND (
-		      p.name        ILIKE $2
-		   OR p.description ILIKE $2
-		   OR p.sku         ILIKE $2
-		   OR EXISTS (
-		       SELECT 1
-		       FROM unnest(p.tags) AS t(tag)
-		       WHERE t.tag ILIKE $2
-		   )
-		  )
-		GROUP BY p.id
-		ORDER BY
-			CASE
-				WHEN p.name ILIKE $3 THEN 0   -- "nike r" → "Nike Running" ranks first
-				WHEN EXISTS (
-					SELECT 1 FROM unnest(p.tags) AS t(tag)
-					WHERE t.tag ILIKE $3       -- "sneaker" prefix match on tag also bubbles up
-				) THEN 1
-				ELSE 2
-			END,
-			p.name ASC
-		LIMIT 50
-	`
-
-	pattern := "%" + search + "%"
-	prefixPattern := search + "%"
-
-	var products []models.Product
-	err := r.db.SelectContext(ctx, &products, query, businessID, pattern, prefixPattern)
+	semantic, err := r.rankSemantic(ctx, businessID, vec)
 	if err != nil {
-		return nil, fmt.Errorf("productRepo.GetBySearch: %w", err)
+		return nil, fmt.Errorf("hybrid semantic: %w", err)
 	}
-	if products == nil {
-		products = []models.Product{}
+	fts, err := r.rankFullText(ctx, businessID, query)
+	if err != nil {
+		return nil, fmt.Errorf("hybrid fulltext: %w", err)
 	}
-	return products, nil
+	trgm, err := r.rankTrigram(ctx, businessID, query)
+	if err != nil {
+		return nil, fmt.Errorf("hybrid trigram: %w", err)
+	}
+
+	// Reciprocal Rank Fusion: score(p) = Σ 1 / (k + rank_in_list).
+	scores := make(map[string]float64)
+	fuse := func(ids []string) {
+		for i, id := range ids {
+			scores[id] += 1.0 / float64(rrfK+i+1)
+		}
+	}
+	fuse(semantic)
+	fuse(fts)
+	fuse(trgm)
+
+	if len(scores) == 0 {
+		return []models.ProductSearchCandidate{}, nil
+	}
+
+	ids := make([]string, 0, len(scores))
+	for id := range scores {
+		ids = append(ids, id)
+	}
+	sort.SliceStable(ids, func(i, j int) bool { return scores[ids[i]] > scores[ids[j]] })
+	if len(ids) > hybridReturn {
+		ids = ids[:hybridReturn]
+	}
+
+	candidates, err := r.loadCandidates(ctx, businessID, ids)
+	if err != nil {
+		return nil, fmt.Errorf("hybrid load: %w", err)
+	}
+
+	// Order by fused score and attach it.
+	byID := make(map[string]models.ProductSearchCandidate, len(candidates))
+	for _, c := range candidates {
+		byID[c.SourceID] = c
+	}
+	out := make([]models.ProductSearchCandidate, 0, len(ids))
+	for _, id := range ids {
+		if c, ok := byID[id]; ok {
+			c.Score = scores[id]
+			out = append(out, c)
+		}
+	}
+	return out, nil
+}
+
+func (r *productRepo) rankSemantic(ctx context.Context, businessID string, vec pgvector.Vector) ([]string, error) {
+	// DISTINCT ON collapses any product that still has multiple chunks to its
+	// closest one, so a product can't occupy several semantic ranks.
+	const q = `
+		SELECT id FROM (
+			SELECT DISTINCT ON (p.id) p.id, kc.embedding <=> $1 AS dist
+			FROM products p
+			JOIN knowledge_chunks kc ON kc.source_id = p.id AND kc.source_type = 'product'
+			WHERE p.business_id = $2 AND p.status = 'active'
+			ORDER BY p.id, dist
+		) s
+		ORDER BY s.dist
+		LIMIT $3`
+	var ids []string
+	if err := r.db.SelectContext(ctx, &ids, q, vec, businessID, hybridListLimit); err != nil {
+		return nil, err
+	}
+	return ids, nil
+}
+
+func (r *productRepo) rankFullText(ctx context.Context, businessID, query string) ([]string, error) {
+	const q = `
+		SELECT p.id
+		FROM products p, websearch_to_tsquery('simple', $1) AS qq
+		WHERE p.business_id = $2 AND p.status = 'active' AND p.search_tsv @@ qq
+		ORDER BY ts_rank(p.search_tsv, qq) DESC
+		LIMIT $3`
+	var ids []string
+	if err := r.db.SelectContext(ctx, &ids, q, query, businessID, hybridListLimit); err != nil {
+		return nil, err
+	}
+	return ids, nil
+}
+
+func (r *productRepo) rankTrigram(ctx context.Context, businessID, query string) ([]string, error) {
+	const q = `
+		SELECT p.id
+		FROM products p
+		WHERE p.business_id = $2 AND p.status = 'active' AND p.name % $1
+		ORDER BY similarity(p.name, $1) DESC
+		LIMIT $3`
+	var ids []string
+	if err := r.db.SelectContext(ctx, &ids, q, query, businessID, hybridListLimit); err != nil {
+		return nil, err
+	}
+	return ids, nil
+}
+
+func (r *productRepo) loadCandidates(ctx context.Context, businessID string, ids []string) ([]models.ProductSearchCandidate, error) {
+	if len(ids) == 0 {
+		return []models.ProductSearchCandidate{}, nil
+	}
+	const q = `
+		SELECT
+			p.id,
+			p.name,
+			COALESCE(
+				(SELECT kc.content FROM knowledge_chunks kc
+				 WHERE kc.source_id = p.id AND kc.source_type = 'product'
+				 ORDER BY kc.chunk_index LIMIT 1),
+				p.name || '. ' || COALESCE(p.description, '')
+			) AS passage
+		FROM products p
+		WHERE p.business_id = $1 AND p.id = ANY($2)`
+	var out []models.ProductSearchCandidate
+	if err := r.db.SelectContext(ctx, &out, q, businessID, pq.Array(ids)); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 type ListProductsResult struct {

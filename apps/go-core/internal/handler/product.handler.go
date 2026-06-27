@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
-	"strings"
 
 	"github.com/bimal009/Zovly/internal/models"
 	repository "github.com/bimal009/Zovly/internal/repo"
@@ -265,26 +264,4 @@ func (h *ProductHandler) LowStock(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, responses.Success("low stock products fetched successfully", products))
-}
-
-func (h *ProductHandler) Search(c *gin.Context) {
-	businessID, ok := businessIDFromCtx(c)
-	if !ok {
-		c.JSON(http.StatusUnauthorized, responses.Unauthorized("unauthorized"))
-		return
-	}
-
-	query := strings.TrimSpace(c.Query("q"))
-	if query == "" {
-		c.JSON(http.StatusBadRequest, responses.BadRequest("search query 'q' is required"))
-		return
-	}
-
-	products, err := h.productService.Search(c.Request.Context(), businessID, query)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, responses.InternalServerError(err.Error()))
-		return
-	}
-
-	c.JSON(http.StatusOK, responses.Success("search results", products))
 }
