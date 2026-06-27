@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/bimal009/Zovly/internal/models"
 	repository "github.com/bimal009/Zovly/internal/repo"
@@ -20,8 +21,6 @@ type ProductHandler struct {
 func NewProductHandler(productService service.ProductService) *ProductHandler {
 	return &ProductHandler{productService: productService}
 }
-
-// ─── helpers ──────────────────────────────────────────────────────────────────
 
 func businessIDFromCtx(c *gin.Context) (string, bool) {
 	raw, exists := c.Get("businessID")
@@ -47,8 +46,6 @@ func paginationFromQuery(c *gin.Context) (limit, offset int) {
 	}
 	return
 }
-
-// ─── Create ───────────────────────────────────────────────────────────────────
 
 func (h *ProductHandler) Create(c *gin.Context) {
 	businessID, ok := businessIDFromCtx(c)
@@ -101,8 +98,6 @@ func (h *ProductHandler) GetByID(c *gin.Context) {
 	c.JSON(http.StatusOK, responses.Success("product fetched successfully", product))
 }
 
-// ─── List ─────────────────────────────────────────────────────────────────────
-
 func (h *ProductHandler) List(c *gin.Context) {
 	businessID, ok := businessIDFromCtx(c)
 	if !ok {
@@ -123,19 +118,25 @@ func (h *ProductHandler) List(c *gin.Context) {
 	if q := c.Query("search"); q != "" {
 		f.Search = q
 	}
+	if slug := c.Query("category"); slug != "" {
+		f.CategorySlug = slug
+	}
 
-	products, err := h.productService.List(c.Request.Context(), businessID, f)
+	result, err := h.productService.List(c.Request.Context(), businessID, f)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, responses.InternalServerError(err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, responses.Paginated("products fetched successfully", products, len(products), limit, offset))
+	c.JSON(http.StatusOK, responses.Paginated(
+		"products fetched successfully",
+		result.Products,
+		result.Total,
+		limit,
+		offset,
+	))
 }
 
-// GetByIDInternal fetches a single product by id for internal service-to-service
-// calls (e.g. the AI service). businessID comes from the query string since there
-// is no business middleware on the internal route group.
 func (h *ProductHandler) GetByIDInternal(c *gin.Context) {
 	businessID := c.Query("businessID")
 	if businessID == "" {
@@ -144,8 +145,9 @@ func (h *ProductHandler) GetByIDInternal(c *gin.Context) {
 	}
 
 	id := c.Param("id")
+	conversationID := c.Query("conversationID")
 
-	product, err := h.productService.GetByID(c.Request.Context(), id, businessID)
+	product, err := h.productService.GetByIDInternal(c.Request.Context(), id, businessID, conversationID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, responses.InternalServerError(err.Error()))
 		return
@@ -156,6 +158,30 @@ func (h *ProductHandler) GetByIDInternal(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, responses.Success("product fetched successfully", product))
+}
+
+func (h *ProductHandler) ListByCategoryInternal(c *gin.Context) {
+	businessID := c.Query("businessID")
+	if businessID == "" {
+		c.JSON(http.StatusBadRequest, responses.BadRequest("businessID is required"))
+		return
+	}
+
+	categorySlug := c.Query("categorySlug")
+	if categorySlug == "" {
+		c.JSON(http.StatusBadRequest, responses.BadRequest("categorySlug is required"))
+		return
+	}
+
+	limit, offset := paginationFromQuery(c)
+
+	products, total, err := h.productService.ListByCategoryInternal(c.Request.Context(), businessID, categorySlug, limit, offset)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, responses.InternalServerError(err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, responses.Paginated("products fetched successfully", products, total, limit, offset))
 }
 
 func (h *ProductHandler) Count(c *gin.Context) {
@@ -208,8 +234,6 @@ func (h *ProductHandler) Update(c *gin.Context) {
 	c.JSON(http.StatusOK, responses.Success("product updated successfully", product))
 }
 
-// ─── Delete ───────────────────────────────────────────────────────────────────
-
 func (h *ProductHandler) Delete(c *gin.Context) {
 	businessID, ok := businessIDFromCtx(c)
 	if !ok {
@@ -227,8 +251,6 @@ func (h *ProductHandler) Delete(c *gin.Context) {
 	c.JSON(http.StatusOK, responses.Success[any]("product deleted successfully", nil))
 }
 
-// ─── LowStock ─────────────────────────────────────────────────────────────────
-
 func (h *ProductHandler) LowStock(c *gin.Context) {
 	businessID, ok := businessIDFromCtx(c)
 	if !ok {
@@ -243,4 +265,26 @@ func (h *ProductHandler) LowStock(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, responses.Success("low stock products fetched successfully", products))
+}
+
+func (h *ProductHandler) Search(c *gin.Context) {
+	businessID, ok := businessIDFromCtx(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, responses.Unauthorized("unauthorized"))
+		return
+	}
+
+	query := strings.TrimSpace(c.Query("q"))
+	if query == "" {
+		c.JSON(http.StatusBadRequest, responses.BadRequest("search query 'q' is required"))
+		return
+	}
+
+	products, err := h.productService.Search(c.Request.Context(), businessID, query)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, responses.InternalServerError(err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, responses.Success("search results", products))
 }

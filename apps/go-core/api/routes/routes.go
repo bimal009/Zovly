@@ -67,6 +67,7 @@ func RegisterAll(
 	internal := api.Group("/internal")
 	internal.Use(internalMiddleware)
 	{
+		internal.GET("/products", productHandler.ListByCategoryInternal)
 		internal.GET("/products/count", productHandler.Count)
 		internal.GET("/products/:id", productHandler.GetByIDInternal)
 		internal.GET("/categories", categoryHandler.GetAllInternal)

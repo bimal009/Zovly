@@ -15,13 +15,14 @@ import (
 type ProductRepo interface {
 	Create(ctx context.Context, tx *sqlx.Tx, input models.CreateProductInput) (*models.Product, error)
 	GetByID(ctx context.Context, id, businessID string) (*models.Product, error)
-	GetByCategorySlug(ctx context.Context, slug, businessID string) ([]models.Product, error)
-	List(ctx context.Context, businessID string, f ListProductsFilter) ([]models.Product, error)
+	GetByCategorySlug(ctx context.Context, slug, businessID string, limit, offset int) ([]models.Product, error)
+	List(ctx context.Context, businessID string, f ListProductsFilter) (ListProductsResult, error)
 	Count(ctx context.Context, businessID, categorySlug string) (int, error)
 	Update(ctx context.Context, tx *sqlx.Tx, id, businessID string, input models.UpdateProductInput) error
 	Delete(ctx context.Context, id, businessID string) error
 	AdjustStock(ctx context.Context, tx sqlx.ExtContext, id, businessID string, delta int) (*models.Product, error)
 	LowStock(ctx context.Context, businessID string) ([]models.Product, error)
+	GetBySearch(ctx context.Context, businessID string, search string) ([]models.Product, error)
 }
 
 type productRepo struct {
@@ -31,8 +32,6 @@ type productRepo struct {
 func NewProductRepo(db *sqlx.DB) ProductRepo {
 	return &productRepo{db: db}
 }
-
-// ─── Create ───────────────────────────────────────────────────────────────────
 
 func (r *productRepo) Create(ctx context.Context, tx *sqlx.Tx, input models.CreateProductInput) (*models.Product, error) {
 	const q = `
@@ -113,7 +112,14 @@ func (r *productRepo) GetByID(ctx context.Context, id, businessID string) (*mode
 	return &p, nil
 }
 
-func (r *productRepo) GetByCategorySlug(ctx context.Context, slug, businessID string) ([]models.Product, error) {
+func (r *productRepo) GetByCategorySlug(ctx context.Context, slug, businessID string, limit, offset int) ([]models.Product, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
 	var products []models.Product
 	err := r.db.SelectContext(ctx, &products, `
 		SELECT p.*, COALESCE(jsonb_agg(
@@ -128,7 +134,8 @@ func (r *productRepo) GetByCategorySlug(ctx context.Context, slug, businessID st
 		WHERE c.slug = $1 AND p.business_id = $2
 		GROUP BY p.id
 		ORDER BY p.created_at DESC
-	`, slug, businessID)
+		LIMIT $3 OFFSET $4
+	`, slug, businessID, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("product get by category slug: %w", err)
 	}
@@ -141,11 +148,71 @@ type ListProductsFilter struct {
 	CategorySlug string
 	Limit        int
 	Offset       int
+	page         int
 }
 
-func (r *productRepo) List(ctx context.Context, businessID string, f ListProductsFilter) ([]models.Product, error) {
+func (r *productRepo) GetBySearch(ctx context.Context, businessID string, search string) ([]models.Product, error) {
+	if strings.TrimSpace(search) == "" {
+		return []models.Product{}, nil
+	}
+
+	query := `
+		SELECT
+			p.*,
+			COALESCE(
+				jsonb_agg(v.*) FILTER (WHERE v.id IS NOT NULL),
+				'[]'
+			) AS variants
+		FROM products p
+		LEFT JOIN product_variants v ON v.product_id = p.id
+		WHERE p.business_id = $1
+		  AND p.status = 'active'
+		  AND (
+		      p.name        ILIKE $2
+		   OR p.description ILIKE $2
+		   OR p.sku         ILIKE $2
+		   OR EXISTS (
+		       SELECT 1
+		       FROM unnest(p.tags) AS t(tag)
+		       WHERE t.tag ILIKE $2
+		   )
+		  )
+		GROUP BY p.id
+		ORDER BY
+			CASE
+				WHEN p.name ILIKE $3 THEN 0   -- "nike r" → "Nike Running" ranks first
+				WHEN EXISTS (
+					SELECT 1 FROM unnest(p.tags) AS t(tag)
+					WHERE t.tag ILIKE $3       -- "sneaker" prefix match on tag also bubbles up
+				) THEN 1
+				ELSE 2
+			END,
+			p.name ASC
+		LIMIT 50
+	`
+
+	pattern := "%" + search + "%"
+	prefixPattern := search + "%"
+
+	var products []models.Product
+	err := r.db.SelectContext(ctx, &products, query, businessID, pattern, prefixPattern)
+	if err != nil {
+		return nil, fmt.Errorf("productRepo.GetBySearch: %w", err)
+	}
+	if products == nil {
+		products = []models.Product{}
+	}
+	return products, nil
+}
+
+type ListProductsResult struct {
+	Products []models.Product
+	Total    int
+}
+
+func (r *productRepo) List(ctx context.Context, businessID string, f ListProductsFilter) (ListProductsResult, error) {
 	args := []any{businessID}
-	conds := []string{"p.business_id = $1"}
+	conds := []string{"p.business_id = $1", "p.status != 'archived'"}
 	join := ""
 	i := 2
 
@@ -155,8 +222,13 @@ func (r *productRepo) List(ctx context.Context, businessID string, f ListProduct
 		i++
 	}
 	if f.Search != "" {
-		conds = append(conds, fmt.Sprintf("(p.name ILIKE $%d OR p.sku ILIKE $%d)", i, i))
-		args = append(args, "%"+f.Search+"%")
+		pattern := "%" + strings.ToLower(f.Search) + "%"
+		conds = append(conds, fmt.Sprintf(
+			`(p.name ILIKE $%d OR p.sku ILIKE $%d OR p.description ILIKE $%d OR EXISTS (
+				SELECT 1 FROM unnest(p.tags) AS t(tag) WHERE t.tag ILIKE $%d
+			))`, i, i, i, i,
+		))
+		args = append(args, pattern)
 		i++
 	}
 	if f.CategorySlug != "" {
@@ -166,34 +238,41 @@ func (r *productRepo) List(ctx context.Context, businessID string, f ListProduct
 		i++
 	}
 
-	limit := 50
+	limit := 20
 	if f.Limit > 0 && f.Limit <= 100 {
 		limit = f.Limit
 	}
 
 	q := fmt.Sprintf(`
-		SELECT p.*, COALESCE(jsonb_agg(
-			(to_jsonb(v) - 'created_at' - 'updated_at') || jsonb_build_object(
-				'created_at', to_char(v.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
-				'updated_at', to_char(v.updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
-			) ORDER BY v.created_at
-		) FILTER (WHERE v.id IS NOT NULL), '[]'::jsonb) AS variants
+		SELECT
+			p.*,
+			COUNT(*) OVER() AS total_count
 		FROM products p
 		%s
-		LEFT JOIN product_variants v ON v.product_id = p.id
 		WHERE %s
-		GROUP BY p.id
 		ORDER BY p.created_at DESC
 		LIMIT $%d OFFSET $%d`,
 		join, strings.Join(conds, " AND "), i, i+1,
 	)
 	args = append(args, limit, f.Offset)
 
-	var products []models.Product
-	if err := r.db.SelectContext(ctx, &products, q, args...); err != nil {
-		return nil, fmt.Errorf("product list: %w", err)
+	var rows []struct {
+		models.Product
+		TotalCount int `db:"total_count"`
 	}
-	return products, nil
+	if err := r.db.SelectContext(ctx, &rows, q, args...); err != nil {
+		return ListProductsResult{}, fmt.Errorf("product list: %w", err)
+	}
+
+	result := ListProductsResult{}
+	if len(rows) > 0 {
+		result.Total = rows[0].TotalCount
+	}
+	result.Products = make([]models.Product, len(rows))
+	for i, row := range rows {
+		result.Products[i] = row.Product
+	}
+	return result, nil
 }
 
 func (r *productRepo) Count(ctx context.Context, businessID, categorySlug string) (int, error) {

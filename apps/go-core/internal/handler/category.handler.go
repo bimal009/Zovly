@@ -85,7 +85,7 @@ func (h *CategoryHandler) GetAllInternal(c *gin.Context) {
 		return
 	}
 
-	categories, err := h.categoryService.GetAll(c.Request.Context(), businessID)
+	categories, err := h.categoryService.GetAllInternal(c.Request.Context(), businessID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, responses.InternalServerError(err.Error()))
 		return

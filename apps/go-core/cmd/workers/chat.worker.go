@@ -27,6 +27,7 @@ import (
 
 type AIWorker struct {
 	chatService          service.ChatService
+	productService       service.ProductService
 	messageRepo          repository.MessageRepo
 	messageEmbeddingRepo repository.MessageEmbeddingRepo
 	credentialRepo       repository.AppCredentialRepo
@@ -40,6 +41,7 @@ type AIWorker struct {
 
 func NewAIWorker(
 	chatService service.ChatService,
+	productService service.ProductService,
 	log *slog.Logger,
 	rdb *redis.Client,
 	messageRepo repository.MessageRepo,
@@ -50,6 +52,7 @@ func NewAIWorker(
 ) *AIWorker {
 	return &AIWorker{
 		chatService:          chatService,
+		productService:       productService,
 		log:                  log,
 		rdb:                  rdb,
 		messageRepo:          messageRepo,
@@ -254,22 +257,34 @@ func (w *AIWorker) processAndReply(ctx context.Context, msg redis.XMessage) erro
 	}
 	w.log.Info("customer loaded", "contact_id", customer.ContactID, "platform", customer.Platform)
 
+	// the product currently under discussion (if any, cached in Redis with 24h
+	// TTL) — lets the AI resolve follow-ups like "how much?" without re-searching
+	var activeProductID string
+	if activeProduct, aerr := w.productService.GetActiveProduct(ctx, businessID, conversationID); aerr != nil {
+		w.log.Error("active product fetch failed", "conversation_id", conversationID, "err", aerr)
+	} else if activeProduct != nil {
+		activeProductID = activeProduct.ID
+		w.log.Info("active product loaded", "conversation_id", conversationID, "active_product_id", activeProductID)
+	}
+
 	w.log.Info("handing off to trySend", "conversation_id", conversationID, "platform", customer.Platform)
-	return w.trySend(ctx, customer.Platform, businessID, conversationID, customer.ContactID, combined, knowledge, pastChats, business, history, customer)
+	return w.trySend(ctx, customer.Platform, businessID, conversationID, customer.ContactID, combined, activeProductID, knowledge, pastChats, business, history, customer)
 }
 
 func (w *AIWorker) callChatReply(
 	ctx context.Context,
-	businessID, message string,
+	businessID, conversationID, message, activeProductID string,
 	knowledge []models.KnowledgeChunk,
 	pastChats []models.PastChatChunk,
 	business *models.Business,
 	history []models.Message,
 	customer *models.Conversation,
-) (string, error) {
+) (string, []string, error) {
 	payload := models.ChatReplyPayload{
-		BusinessID: businessID,
-		Message:    message,
+		BusinessID:      businessID,
+		ConversationID:  conversationID,
+		Message:         message,
+		ActiveProductID: activeProductID,
 		Context: models.ChatContext{
 			Knowledge:        knowledge,
 			PastChats:        pastChats,
@@ -281,31 +296,31 @@ func (w *AIWorker) callChatReply(
 
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return "", fmt.Errorf("marshal chat reply request: %w", err)
+		return "", nil, fmt.Errorf("marshal chat reply request: %w", err)
 	}
 
 	reqURL := w.cfg.App.AIServiceURL + "/api/v1/ml/chat/reply"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(body))
 	if err != nil {
-		return "", fmt.Errorf("build chat reply request: %w", err)
+		return "", nil, fmt.Errorf("build chat reply request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := w.httpClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("call chat reply service: %w", err)
+		return "", nil, fmt.Errorf("call chat reply service: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("chat reply service returned status %d", resp.StatusCode)
+		return "", nil, fmt.Errorf("chat reply service returned status %d", resp.StatusCode)
 	}
 
 	var result models.ChatReplyResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("decode chat reply response: %w", err)
+		return "", nil, fmt.Errorf("decode chat reply response: %w", err)
 	}
-	return result.Reply, nil
+	return result.Reply, result.Images, nil
 }
 
 func (w *AIWorker) searchKnowledge(ctx context.Context, businessID string, vec pgvector.Vector, k int) ([]models.KnowledgeChunk, error) {
@@ -392,7 +407,7 @@ func (w *AIWorker) getConversationHistory(ctx context.Context, conversationID st
 
 func (w *AIWorker) trySend(
 	ctx context.Context,
-	platform, businessID, conversationID, recipientID, message string,
+	platform, businessID, conversationID, recipientID, message, activeProductID string,
 	knowledge []models.KnowledgeChunk,
 	pastChats []models.PastChatChunk,
 	business *models.Business,
@@ -411,12 +426,12 @@ func (w *AIWorker) trySend(
 	}
 
 	w.log.Info("calling AI service", "conversation_id", conversationID, "business_id", businessID)
-	reply, err := w.callChatReply(ctx, businessID, message, knowledge, pastChats, business, history, customer)
+	reply, images, err := w.callChatReply(ctx, businessID, conversationID, message, activeProductID, knowledge, pastChats, business, history, customer)
 	if err != nil {
 		w.rdb.Decr(ctx, rateLimitKey)
 		return fmt.Errorf("chat reply: %w", err) // not acked → retried
 	}
-	w.log.Info("AI reply received", "conversation_id", conversationID, "reply_len", len(reply), "msg", reply)
+	w.log.Info("AI reply received", "conversation_id", conversationID, "reply_len", len(reply), "images", len(images), "msg", reply)
 
 	pending := models.MessageStatusPending
 	aiSender := models.MessageSenderAI
@@ -478,7 +493,58 @@ func (w *AIWorker) trySend(
 
 	w.messageRepo.UpdateStatus(ctx, outbound.ID, models.MessageStatusSent, platformMsgID, nil)
 	w.log.Info("ai reply sent", "conversation_id", conversationID, "platform_message_id", platformMsgID)
+
+	// send any product images the AI included, each as its own message
+	for _, imgURL := range images {
+		w.sendImageMessage(ctx, platform, businessID, conversationID, recipientID, token, imgURL)
+	}
+
 	return nil
+}
+
+// sendImageMessage persists and delivers a single image attachment. Failures are
+// logged and recorded on the message row but never abort the reply — the text
+// has already been sent successfully.
+func (w *AIWorker) sendImageMessage(ctx context.Context, platform, businessID, conversationID, recipientID, token, imgURL string) {
+	imageType := models.MediaTypeImage
+	sent := models.MessageStatusSent
+	aiSender := models.MessageSenderAI
+
+	tx, err := w.db.BeginTxx(ctx, nil)
+	if err != nil {
+		w.log.Error("begin tx for image failed", "conversation_id", conversationID, "err", err)
+		return
+	}
+	pending := models.MessageStatusPending
+	imgMsg, err := w.messageRepo.Create(ctx, tx, models.CreateMessage{
+		ConversationID: conversationID,
+		BusinessID:     businessID,
+		Direction:      models.MessageDirectionOut,
+		SentBy:         &aiSender,
+		MediaUrl:       &imgURL,
+		MediaType:      &imageType,
+		Status:         &pending,
+	})
+	if err != nil {
+		tx.Rollback()
+		w.log.Error("create outbound image message failed", "conversation_id", conversationID, "err", err)
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		w.log.Error("commit outbound image message failed", "conversation_id", conversationID, "err", err)
+		return
+	}
+
+	w.log.Info("sending image via platform", "platform", platform, "recipient_id", recipientID, "url", imgURL)
+	platformMsgID, err := w.sendImage(ctx, platform, token, recipientID, imgURL)
+	if err != nil {
+		w.log.Error("platform image send failed", "platform", platform, "conversation_id", conversationID, "err", err)
+		errMsg := err.Error()
+		w.messageRepo.UpdateStatus(ctx, imgMsg.ID, models.MessageStatusFailed, "", &errMsg)
+		return
+	}
+	w.messageRepo.UpdateStatus(ctx, imgMsg.ID, sent, platformMsgID, nil)
+	w.log.Info("ai image sent", "conversation_id", conversationID, "platform_message_id", platformMsgID)
 }
 
 type graphSendResponse struct {
@@ -570,6 +636,103 @@ func (w *AIWorker) sendReply(ctx context.Context, platform, token, recipientID, 
 		return w.sendMessengerReply(ctx, token, recipientID, text)
 	case "instagram":
 		return w.sendInstagramReply(ctx, token, recipientID, text)
+	default:
+		return "", fmt.Errorf("unsupported platform: %s", platform)
+	}
+}
+
+func imageAttachmentMessage(imageURL string) map[string]interface{} {
+	return map[string]interface{}{
+		"attachment": map[string]interface{}{
+			"type": "image",
+			"payload": map[string]interface{}{
+				"url":         imageURL,
+				"is_reusable": true,
+			},
+		},
+	}
+}
+
+func (w *AIWorker) sendMessengerImage(ctx context.Context, pageToken, recipientID, imageURL string) (string, error) {
+	payload := map[string]interface{}{
+		"recipient":      map[string]string{"id": recipientID},
+		"message":        imageAttachmentMessage(imageURL),
+		"messaging_type": "RESPONSE",
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("marshal image payload: %w", err)
+	}
+
+	reqURL := "https://graph.facebook.com/v25.0/me/messages?access_token=" + url.QueryEscape(pageToken)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("build image request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := w.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("call send endpoint: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var result graphSendResponse
+	rawBody, _ := io.ReadAll(resp.Body)
+	json.Unmarshal(rawBody, &result)
+
+	if resp.StatusCode != http.StatusOK {
+		if result.Error != nil {
+			return "", fmt.Errorf("messenger image send failed (code %d): %s", result.Error.Code, result.Error.Message)
+		}
+		return "", fmt.Errorf("messenger image send failed (%d): %s", resp.StatusCode, rawBody)
+	}
+	return result.MessageID, nil
+}
+
+func (w *AIWorker) sendInstagramImage(ctx context.Context, igToken, recipientID, imageURL string) (string, error) {
+	payload := map[string]interface{}{
+		"recipient": map[string]string{"id": recipientID},
+		"message":   imageAttachmentMessage(imageURL),
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("marshal image payload: %w", err)
+	}
+
+	reqURL := "https://graph.instagram.com/v25.0/me/messages"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("build image request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+igToken)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := w.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("call send endpoint: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var result graphSendResponse
+	rawBody, _ := io.ReadAll(resp.Body)
+	json.Unmarshal(rawBody, &result)
+
+	if resp.StatusCode != http.StatusOK {
+		if result.Error != nil {
+			return "", fmt.Errorf("instagram image send failed (code %d): %s", result.Error.Code, result.Error.Message)
+		}
+		return "", fmt.Errorf("instagram image send failed (%d): %s", resp.StatusCode, rawBody)
+	}
+	return result.MessageID, nil
+}
+
+func (w *AIWorker) sendImage(ctx context.Context, platform, token, recipientID, imageURL string) (string, error) {
+	switch platform {
+	case "facebook":
+		return w.sendMessengerImage(ctx, token, recipientID, imageURL)
+	case "instagram":
+		return w.sendInstagramImage(ctx, token, recipientID, imageURL)
 	default:
 		return "", fmt.Errorf("unsupported platform: %s", platform)
 	}

@@ -1,4 +1,3 @@
-// internal/service/product_service.go
 package service
 
 import (
@@ -18,7 +17,7 @@ import (
 )
 
 var (
-	ErrProductNotFound = errors.New("product not found")
+	ErrProductNotFound  = errors.New("product not found")
 	ErrCategoryRequired = errors.New("category is required")
 	ErrCategoryNotFound = errors.New("category not found")
 )
@@ -26,12 +25,16 @@ var (
 type ProductService interface {
 	Create(ctx context.Context, input models.CreateProductInput) (*models.Product, error)
 	GetByID(ctx context.Context, id, businessID string) (*models.Product, error)
-	List(ctx context.Context, businessID string, f repository.ListProductsFilter) ([]models.Product, error)
+	GetByIDInternal(ctx context.Context, id, businessID, conversationID string) (*models.Product, error)
+	GetActiveProduct(ctx context.Context, businessID, conversationID string) (*models.Product, error)
+	ListByCategoryInternal(ctx context.Context, businessID, categorySlug string, limit, offset int) ([]models.Product, int, error)
+	List(ctx context.Context, businessID string, f repository.ListProductsFilter) (repository.ListProductsResult, error)
 	Count(ctx context.Context, businessID, categorySlug string) (int, error)
 	Update(ctx context.Context, id, businessID string, input models.UpdateProductInput) (*models.Product, error)
 	Delete(ctx context.Context, id, businessID string) error
 	AdjustStock(ctx context.Context, tx sqlx.ExtContext, id, businessID string, delta int) (*models.Product, error)
 	LowStock(ctx context.Context, businessID string) ([]models.Product, error)
+	Search(ctx context.Context, businessID string, query string) ([]models.Product, error)
 }
 
 type productService struct {
@@ -42,6 +45,7 @@ type productService struct {
 	productVariantRepo repository.ProductVariantRepo
 	knowledgeRepo      repository.BusinessKnowledgeRepo
 	categoryRepo       repository.CategoryRepo
+	conversationRepo   repository.ConversationRepo
 	embedder           *embed.Client
 }
 
@@ -53,6 +57,7 @@ func NewProductService(
 	productVariantRepo repository.ProductVariantRepo,
 	knowledgeRepo repository.BusinessKnowledgeRepo,
 	categoryRepo repository.CategoryRepo,
+	conversationRepo repository.ConversationRepo,
 	embedder *embed.Client,
 ) ProductService {
 	return &productService{
@@ -63,13 +68,24 @@ func NewProductService(
 		productVariantRepo: productVariantRepo,
 		knowledgeRepo:      knowledgeRepo,
 		categoryRepo:       categoryRepo,
+		conversationRepo:   conversationRepo,
 		embedder:           embedder,
 	}
 }
 
-// validateCategory ensures the given category exists and belongs to the business.
-// When required is true a missing/empty category is rejected; otherwise a nil
-// category is allowed (no change).
+func (s *productService) Search(ctx context.Context, businessID string, query string) ([]models.Product, error) {
+	if strings.TrimSpace(query) == "" {
+		return []models.Product{}, nil
+	}
+
+	products, err := s.productRepo.GetBySearch(ctx, businessID, query)
+	if err != nil {
+		s.logger.Error("product search failed", "business_id", businessID, "query", query, "error", err)
+		return nil, err
+	}
+
+	return products, nil
+}
 func (s *productService) validateCategory(ctx context.Context, businessID string, categoryID *string, required bool) error {
 	if categoryID == nil || *categoryID == "" {
 		if required {
@@ -101,6 +117,9 @@ func lowStockKey(businessID string) string {
 	return fmt.Sprintf("%s%s:low_stock", constants.ProductsKeys, businessID)
 }
 
+func activeProductKey(businessID, conversationID string) string {
+	return fmt.Sprintf("active_product:%s:%s", businessID, conversationID)
+}
 func buildProductKnowledgePassage(name string, description *string, tags []string, attributes json.RawMessage, variantNames []string) string {
 	var b strings.Builder
 
@@ -251,39 +270,39 @@ func (s *productService) GetByID(ctx context.Context, id, businessID string) (*m
 	return product, nil
 }
 
-func (s *productService) List(ctx context.Context, businessID string, f repository.ListProductsFilter) ([]models.Product, error) {
+func (s *productService) List(ctx context.Context, businessID string, f repository.ListProductsFilter) (repository.ListProductsResult, error) {
+	// Only cache the default unfiltered first page
+	useCache := f.Status == nil && f.Search == "" && f.CategorySlug == "" && f.Offset == 0
 	cacheKey := productListKey(businessID)
-
-	useCache := f.Status == nil && f.Offset == 0
 
 	if useCache {
 		cached, err := s.rdb.Get(ctx, cacheKey).Result()
 		if err == nil {
-			var products []models.Product
-			if err := json.Unmarshal([]byte(cached), &products); err == nil {
-				return products, nil
+			var result repository.ListProductsResult
+			if json.Unmarshal([]byte(cached), &result) == nil {
+				return result, nil
 			}
 		}
 		if err != nil && err != redis.Nil {
-			s.logger.Warn("product list cache get failed", "business_id", businessID, "error", err)
+			s.logger.Warn("product list cache miss", "business_id", businessID, "error", err)
 		}
 	}
 
-	products, err := s.productRepo.List(ctx, businessID, f)
+	result, err := s.productRepo.List(ctx, businessID, f)
 	if err != nil {
 		s.logger.Error("product list failed", "business_id", businessID, "error", err)
-		return nil, err
+		return repository.ListProductsResult{}, err
 	}
 
-	if useCache {
-		if data, err := json.Marshal(products); err == nil {
+	if useCache && len(result.Products) > 0 {
+		if data, err := json.Marshal(result); err == nil {
 			if err := s.rdb.Set(ctx, cacheKey, data, constants.TTLShort).Err(); err != nil {
 				s.logger.Warn("product list cache set failed", "business_id", businessID, "error", err)
 			}
 		}
 	}
 
-	return products, nil
+	return result, nil
 }
 
 func (s *productService) Count(ctx context.Context, businessID, categorySlug string) (int, error) {
@@ -428,8 +447,6 @@ func (s *productService) AdjustStock(ctx context.Context, tx sqlx.ExtContext, id
 	return product, nil
 }
 
-// ─── LowStock ─────────────────────────────────────────────────────────────────
-
 func (s *productService) LowStock(ctx context.Context, businessID string) ([]models.Product, error) {
 	cacheKey := lowStockKey(businessID)
 
@@ -457,4 +474,88 @@ func (s *productService) LowStock(ctx context.Context, businessID string) ([]mod
 	}
 
 	return products, nil
+}
+func (s *productService) GetByIDInternal(ctx context.Context, id, businessID string, conversationID string) (*models.Product, error) {
+	cacheKey := productKey(id, businessID)
+
+	cached, err := s.rdb.Get(ctx, cacheKey).Result()
+	if err == nil {
+		var product models.Product
+		if err := json.Unmarshal([]byte(cached), &product); err == nil {
+			s.setActiveProduct(ctx, businessID, conversationID, &product)
+			return &product, nil
+		}
+	}
+	if err != nil && err != redis.Nil {
+		s.logger.Warn("product cache get failed", "id", id, "error", err)
+	}
+
+	product, err := s.productRepo.GetByID(ctx, id, businessID)
+	if err != nil {
+		s.logger.Error("product get failed", "id", id, "business_id", businessID, "error", err)
+		return nil, err
+	}
+	if product == nil {
+		return nil, nil
+	}
+
+	s.setActiveProduct(ctx, businessID, conversationID, product)
+
+	if data, err := json.Marshal(product); err == nil {
+		if err := s.rdb.Set(ctx, cacheKey, data, constants.TTLDay).Err(); err != nil {
+			s.logger.Warn("product cache set failed", "id", id, "error", err)
+		}
+	}
+
+	return product, nil
+}
+
+func (s *productService) setActiveProduct(ctx context.Context, businessID, conversationID string, product *models.Product) {
+	if conversationID == "" {
+		return
+	}
+
+	if data, err := json.Marshal(product); err == nil {
+		if err := s.rdb.Set(ctx, activeProductKey(businessID, conversationID), data, constants.TTLDay).Err(); err != nil {
+			s.logger.Warn("active product cache set failed", "conversation_id", conversationID, "error", err)
+		}
+	}
+
+	if err := s.conversationRepo.SetActiveProduct(ctx, conversationID, product.ID); err != nil {
+		s.logger.Error("active product persist failed", "conversation_id", conversationID, "error", err)
+	}
+}
+
+func (s *productService) ListByCategoryInternal(ctx context.Context, businessID, categorySlug string, limit, offset int) ([]models.Product, int, error) {
+	products, err := s.productRepo.GetByCategorySlug(ctx, categorySlug, businessID, limit, offset)
+	if err != nil {
+		s.logger.Error("product list by category failed", "business_id", businessID, "category_slug", categorySlug, "error", err)
+		return nil, 0, err
+	}
+
+	total, err := s.productRepo.Count(ctx, businessID, categorySlug)
+	if err != nil {
+		s.logger.Error("product count by category failed", "business_id", businessID, "category_slug", categorySlug, "error", err)
+		return nil, 0, err
+	}
+
+	return products, total, nil
+}
+
+func (s *productService) GetActiveProduct(ctx context.Context, businessID, conversationID string) (*models.Product, error) {
+	cached, err := s.rdb.Get(ctx, activeProductKey(businessID, conversationID)).Result()
+	if err == redis.Nil {
+		return nil, nil
+	}
+	if err != nil {
+		s.logger.Warn("active product cache get failed", "conversation_id", conversationID, "error", err)
+		return nil, err
+	}
+
+	var product models.Product
+	if err := json.Unmarshal([]byte(cached), &product); err != nil {
+		s.logger.Warn("active product unmarshal failed", "conversation_id", conversationID, "error", err)
+		return nil, nil
+	}
+	return &product, nil
 }

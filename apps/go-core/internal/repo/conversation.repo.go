@@ -12,6 +12,7 @@ type ConversationRepo interface {
 	FindOrCreate(ctx context.Context, tx *sqlx.Tx, conv models.CreateConversation) (*models.Conversation, error)
 	GetByID(ctx context.Context, id, businessID string) (*models.Conversation, error)
 	ListByBusiness(ctx context.Context, businessID string, limit, offset int) ([]models.Conversation, int, error)
+	SetActiveProduct(ctx context.Context, conversationID, productID string) error
 }
 type conversationRepo struct {
 	db *sqlx.DB
@@ -67,6 +68,18 @@ func (r *conversationRepo) GetByID(ctx context.Context, id, businessID string) (
 		return nil, err
 	}
 	return &conv, nil
+}
+
+func (r *conversationRepo) SetActiveProduct(ctx context.Context, conversationID, productID string) error {
+	_, err := r.db.ExecContext(ctx, `
+        UPDATE conversations
+        SET active_product_id = $1, active_product_at = now()
+        WHERE id = $2
+    `, productID, conversationID)
+	if err != nil {
+		return fmt.Errorf("set active product: %w", err)
+	}
+	return nil
 }
 
 func (r *conversationRepo) ListByBusiness(ctx context.Context, businessID string, limit, offset int) ([]models.Conversation, int, error) {

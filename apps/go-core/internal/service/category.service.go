@@ -18,6 +18,7 @@ type CategoryService interface {
 	Create(ctx context.Context, input models.CreateCategoryInput) error
 	Get(ctx context.Context, id, businessID string) (*models.Category, error)
 	GetAll(ctx context.Context, businessID string) ([]models.Category, error)
+	GetAllInternal(ctx context.Context, businessID string) ([]models.Category, error)
 }
 
 type categoryService struct {
@@ -46,8 +47,13 @@ func categoryListKey(businessID string) string {
 	return fmt.Sprintf("%s%s:list", constants.CategoriesKeys, businessID)
 }
 
+func categoryListInternalKey(businessID string) string {
+	return fmt.Sprintf("%s%s:list:internal", constants.CategoriesKeys, businessID)
+}
+
 func (s *categoryService) invalidateBusinessCache(ctx context.Context, businessID string) {
-	if err := s.rdb.Del(ctx, categoryListKey(businessID)).Err(); err != nil {
+	keys := []string{categoryListKey(businessID), categoryListInternalKey(businessID)}
+	if err := s.rdb.Del(ctx, keys...).Err(); err != nil {
 		s.logger.Warn("category cache invalidate failed", "business_id", businessID, "error", err)
 	}
 }
@@ -137,6 +143,38 @@ func (s *categoryService) GetAll(ctx context.Context, businessID string) ([]mode
 	if data, err := json.Marshal(categories); err == nil {
 		if err := s.rdb.Set(ctx, cacheKey, data, constants.TTLShort).Err(); err != nil {
 			s.logger.Warn("category list cache set failed", "business_id", businessID, "error", err)
+		}
+	}
+
+	return categories, nil
+}
+
+// GetAllInternal serves service-to-service callers (e.g. the AI tool). Same data
+// as GetAll but cached for 24h under a separate key, since internal callers don't
+// need near-real-time freshness and we want to minimise DB hits.
+func (s *categoryService) GetAllInternal(ctx context.Context, businessID string) ([]models.Category, error) {
+	cacheKey := categoryListInternalKey(businessID)
+
+	cached, err := s.rdb.Get(ctx, cacheKey).Result()
+	if err == nil {
+		var categories []models.Category
+		if err := json.Unmarshal([]byte(cached), &categories); err == nil {
+			return categories, nil
+		}
+	}
+	if err != nil && err != redis.Nil {
+		s.logger.Warn("category internal list cache get failed", "business_id", businessID, "error", err)
+	}
+
+	categories, err := s.categoryRepo.GetAll(ctx, businessID)
+	if err != nil {
+		s.logger.Error("category internal list failed", "business_id", businessID, "error", err)
+		return nil, err
+	}
+
+	if data, err := json.Marshal(categories); err == nil {
+		if err := s.rdb.Set(ctx, cacheKey, data, constants.TTLDay).Err(); err != nil {
+			s.logger.Warn("category internal list cache set failed", "business_id", businessID, "error", err)
 		}
 	}
 

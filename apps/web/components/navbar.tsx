@@ -11,12 +11,12 @@ export function Navbar() {
 
   const user = sessionData?.user;
   const hasSession = !!sessionData?.session;
+  console.log(sessionData?.session.token)
 
   const { data: businessData, isPending: businessPending } =
     useGetBusiness(hasSession);
   const businessId = businessData?.data?.Business?.id;
 
-  // Resolve CTA
   let ctaHref = "/signup";
   let ctaLabel = "Get started free";
   let showSignIn = true;

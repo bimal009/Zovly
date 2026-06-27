@@ -11,11 +11,14 @@ type ChatContext struct {
 }
 
 type ChatReplyPayload struct {
-	BusinessID string      `json:"business_id"`
-	Message    string      `json:"message"`
-	Context    ChatContext `json:"context"`
+	BusinessID      string      `json:"business_id"`
+	ConversationID  string      `json:"conversation_id"`
+	Message         string      `json:"message"`
+	ActiveProductID string      `json:"active_product_id"`
+	Context         ChatContext `json:"context"`
 }
 
 type ChatReplyResponse struct {
-	Reply string `json:"reply"`
+	Reply  string   `json:"reply"`
+	Images []string `json:"images"`
 }

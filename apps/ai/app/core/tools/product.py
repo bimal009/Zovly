@@ -1,5 +1,6 @@
 import json
 import os
+import uuid
 from dataclasses import dataclass
 
 import requests
@@ -17,6 +18,8 @@ class BusinessContext:
     """Runtime context injected per request — never supplied by the model."""
 
     business_id: str
+    conversation_id: str = ""  # so product lookups can record the active product
+    active_product_id: str = ""  # product currently under discussion, if any
 
 
 @tool
@@ -68,6 +71,76 @@ def get_category_product_count(
         return f"Request failed: {e}"
 
 
+PRODUCTS_PAGE_SIZE = 10
+
+
+@tool
+def get_products_by_category(
+    runtime: ToolRuntime[BusinessContext],
+    category_slug: str,
+    page: int = 1,
+) -> str:
+    """List the products in a category (paginated), each with its real source_id.
+
+    Use this to DISCOVER which products exist and get their source_id when you don't
+    already have one (e.g. the customer asks about a category, or you only know a
+    product name). Then call get_product_details with the chosen source_id for live
+    price, stock, and variants.
+
+    Results are paged (10 per page). Pass page=1 first; if the result says more pages
+    are available, call again with page=2, page=3, ... to see the rest.
+    """
+
+    business_id = runtime.context.business_id
+
+    if page < 1:
+        page = 1
+    offset = (page - 1) * PRODUCTS_PAGE_SIZE
+
+    url = f"{API_BASE_URL}/api/v1/internal/products"
+    params = {
+        "businessID": business_id,
+        "categorySlug": category_slug,
+        "limit": PRODUCTS_PAGE_SIZE,
+        "offset": offset,
+    }
+    headers = {
+        "Authorization": f"Bearer {INTERNAL_TOKEN}",
+        "Accept": "application/json",
+    }
+
+    try:
+        response = requests.get(url, params=params, headers=headers, timeout=30)
+        response.raise_for_status()
+
+        body = response.json()
+        products = body.get("data") or []
+        total = (body.get("meta") or {}).get("total", len(products))
+
+        if not products:
+            if page > 1:
+                return f"No more products in category '{category_slug}' (page {page} is empty)."
+            return f"No products found in category '{category_slug}'."
+
+        lines = [
+            f"{p.get('name', 'Unnamed')} (source_id: {p.get('id', '')})"
+            for p in products
+        ]
+
+        shown = offset + len(products)
+        header = f"Products in '{category_slug}' ({shown} of {total}, page {page}):"
+        footer = ""
+        if shown < total:
+            footer = f"\nMore products available — call again with page={page + 1}."
+
+        return header + "\n" + "\n".join(lines) + footer
+
+    except requests.HTTPError:
+        return f"HTTP {response.status_code}: {response.text}"
+    except requests.RequestException as e:
+        return f"Request failed: {e}"
+
+
 @tool
 def get_product_details(
     runtime: ToolRuntime[BusinessContext],
@@ -81,9 +154,22 @@ def get_product_details(
     """
 
     business_id = runtime.context.business_id
+    conversation_id = runtime.context.conversation_id
+
+    # guard against hallucinated ids (e.g. "abc", "1") — never hit the API with one
+    try:
+        uuid.UUID(str(source_id))
+    except (ValueError, AttributeError, TypeError):
+        return (
+            "Invalid source_id — it must be a real product source_id taken verbatim "
+            "from the provided context. Do not guess or make one up. If you don't have "
+            "one, ask the customer which product they mean."
+        )
 
     url = f"{API_BASE_URL}/api/v1/internal/products/{source_id}"
     params = {"businessID": business_id}
+    if conversation_id:
+        params["conversationID"] = conversation_id  # records this as the active product
     headers = {
         "Authorization": f"Bearer {INTERNAL_TOKEN}",
         "Accept": "application/json",

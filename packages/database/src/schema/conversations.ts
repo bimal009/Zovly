@@ -9,6 +9,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { business } from "./business";
 import { messages } from "./messages";
+import { products } from "./products";
 import { platformEnum } from "./enums";
 import { relations } from "drizzle-orm";
 
@@ -30,6 +31,12 @@ export const conversations = pgTable(
 
     lastMessageAt: timestamp("last_message_at").defaultNow().notNull(),
 
+    // the product currently under discussion (for follow-up context)
+    activeProductId: uuid("active_product_id").references(() => products.id, {
+      onDelete: "set null",
+    }),
+    activeProductAt: timestamp("active_product_at"), // when it was set (for staleness)
+
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [
@@ -50,6 +57,10 @@ export const conversationsRelations = relations(
     business: one(business, {
       fields: [conversations.businessId],
       references: [business.id],
+    }),
+    activeProduct: one(products, {
+      fields: [conversations.activeProductId],
+      references: [products.id],
     }),
     messages: many(messages),
   }),

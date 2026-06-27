@@ -14,7 +14,11 @@ type Conversation struct {
 	ContactAvatarURL *string `db:"contact_avatar_url" json:"contact_avatar_url"`
 
 	LastMessageAt *time.Time `db:"last_message_at" json:"last_message_at"`
-	CreatedAt     time.Time  `db:"created_at" json:"created_at"`
+
+	ActiveProductID *string    `db:"active_product_id" json:"active_product_id"`
+	ActiveProductAt *time.Time `db:"active_product_at" json:"active_product_at"`
+
+	CreatedAt time.Time `db:"created_at" json:"created_at"`
 }
 
 type CreateConversation struct {

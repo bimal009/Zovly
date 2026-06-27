@@ -48,7 +48,6 @@ export const productVariants = pgTable(
     index("pv_product_idx").on(table.productId),
     index("pv_business_idx").on(table.businessId),
     index("pv_sku_idx").on(table.sku),
-    // no two variants of the same product share a name ("Red / M" once per product)
     unique("pv_product_name_uq").on(table.productId, table.name),
   ],
 );

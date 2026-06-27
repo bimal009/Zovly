@@ -15,7 +15,7 @@ def chat(req: ChatRequest, service: ChatService = Depends(get_chat_service)):
 @chat_router.post("/chat/reply")
 def chat_reply(req: ChatReqModel, service: ChatService = Depends(get_chat_service)):
     reply = service.handle_with_context(req)
-    return {"reply": reply}
+    return {"reply": reply.message, "images": reply.images}
 
 
 @chat_router.post("/chat/embed")

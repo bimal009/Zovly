@@ -1,5 +1,5 @@
 from typing import Literal, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel,Field
 
 
 class ChatRequest(BaseModel):
@@ -61,8 +61,17 @@ class ChatContext(BaseModel):
 
 class ChatReplyRequest(BaseModel):
     business_id: str
+    conversation_id: Optional[str] = None  # used by tools to record the active product
     message: str
+    active_product_id: Optional[str] = None  # product currently under discussion, if any
     context: ChatContext
 
 ChatReqModel = ChatReplyRequest
 
+
+class AgentReply(BaseModel):
+    message: str = Field(description="The reply text to send to the customer, plain text, a few sentences max.")
+    images: list[str] = Field(
+        default_factory=list,
+        description="Image URLs to send with the reply. Only URLs that appear in the provided product context. Empty list if none.",
+    )
