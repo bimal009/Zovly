@@ -1,8 +1,5 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { isAxiosError } from "axios";
 import {
   Controller,
   useForm,
@@ -17,9 +14,7 @@ import {
   ShoppingBag,
   Wrench,
 } from "lucide-react";
-import { createBusiness } from "@/features/onboard/api/business";
 import { ImageUploader } from "@/components/ImageUploader";
-import { CreatingDashboard } from "./CreatingDashboard";
 import { Button } from "@repo/ui/components/ui/button";
 import { Card } from "@repo/ui/components/ui/card";
 import { CountryDropdown } from "@repo/ui/components/ui/country-dropdown";
@@ -28,6 +23,10 @@ import { Textarea } from "@repo/ui/components/ui/textarea";
 import { cn } from "@repo/ui/utils";
 import { createBusinessSchema } from "@repo/types";
 import type { CreateBusinessInput } from "@repo/types";
+import { useCreateBusiness } from "../hooks/useBusiness";
+import { toast } from "@repo/ui/components/ui/sonner";
+import { getErrorMessage } from "@/lib/axios";
+import { useRouter } from "next/navigation";
 
 type OnboardingFormValues = z.input<typeof createBusinessSchema>;
 
@@ -133,9 +132,7 @@ function FieldError({ message }: { message?: string }) {
 }
 
 export function BusinessOnboardingForm() {
-  const router = useRouter();
-  const [phase, setPhase] = useState<Phase>("form");
-  const [apiError, setApiError] = useState<string | null>(null);
+  const createBusinessMutation = useCreateBusiness();
 
   const {
     register,
@@ -160,12 +157,11 @@ export function BusinessOnboardingForm() {
     mode: "onChange",
   });
 
-  const onSubmit = async (values: CreateBusinessInput) => {
-    setApiError(null);
-    setPhase("creating");
+  const router = useRouter();
 
-    try {
-      await createBusiness({
+  const onSubmit = async (values: CreateBusinessInput) => {
+    toast.promise(
+      createBusinessMutation.mutateAsync({
         name: values.name,
         description: values.description,
         logo: values.logo,
@@ -175,23 +171,19 @@ export function BusinessOnboardingForm() {
         city: values.city,
         country: values.country,
         type: values.type,
-      });
-      setPhase("ready");
-    } catch (err) {
-      setPhase("form");
-      if (isAxiosError(err) && err.response?.data?.message) {
-        setApiError(err.response.data.message as string);
-      } else {
-        setApiError("Something went wrong. Please try again.");
-      }
-    }
-  };
-
-  if (phase !== "form") {
-    return (
-      <CreatingDashboard phase={phase} onFinish={() => router.push("/")} />
+      }),
+      {
+        loading: "Creating your business...",
+        success: () => {
+          router.push("/");
+          return "Business created successfully";
+        },
+        error: (err) => {
+          return getErrorMessage(err);
+        },
+      },
     );
-  }
+  };
 
   const typeValue = watch("type");
   const descriptionValue = watch("description");
@@ -207,13 +199,6 @@ export function BusinessOnboardingForm() {
             Takes about a minute &mdash; you can change everything later.
           </p>
         </div>
-
-        {apiError && (
-          <div className="mb-5 flex items-center gap-2.5 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-            <AlertCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
-            {apiError}
-          </div>
-        )}
 
         <Card className="rounded-2xl border-border/70 p-6 sm:p-8 shadow-[0_1px_2px_rgb(0_0_0/0.04),0_12px_32px_-12px_rgb(0_0_0/0.12)]">
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-7">
@@ -477,6 +462,7 @@ export function BusinessOnboardingForm() {
               <Button
                 type="submit"
                 variant="default"
+                disabled={createBusinessMutation.isPending}
                 className="gap-1.5 h-10 px-5 shadow-sm shadow-primary/25"
               >
                 Create business

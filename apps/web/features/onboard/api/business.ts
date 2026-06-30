@@ -19,7 +19,7 @@ export type BusinessResponse = {
 
 export const createBusiness = async (input: CreateBusinessInput) => {
   const res = await axiosInstance.post<ApiResponse<BusinessResponse>>(
-    "/api/v1/business/",
+    "/api/v1/business",
     input,
   );
   return res.data;

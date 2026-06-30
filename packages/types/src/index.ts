@@ -1,3 +1,4 @@
 export * from "./plans";
 export * from "./pagination";
-export * from "./business";
+export { createBusinessSchema, updateBusinessSchema } from "./business";
+export type { CreateBusinessInput, UpdateBusinessInput } from "./business";

@@ -85,7 +85,7 @@ export const auth = betterAuth({
         type: "string",
         required: false,
         defaultValue: "user",
-        input: false,
+        input: true,
       },
       isOnboarded: {
         type: "boolean",

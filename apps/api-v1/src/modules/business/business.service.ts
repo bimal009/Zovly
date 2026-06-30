@@ -1,22 +1,27 @@
+// business.service.ts
 import { eq } from "drizzle-orm";
 import { CreateBusinessInput } from "@repo/types";
 
 import { db } from "../../config/db/db";
 import { business } from "../../config/db/schema/business";
-import { user } from "../../config/db/schema/user";
-import { User } from "../../lib/auth";
+import { auth, User } from "../../lib/auth";
 import { businessMembers } from "../../config/db/schema/members";
+import { ConflictError, UnauthorizedError } from "../../lib/errors";
 
-export const create = async (session: User, input: CreateBusinessInput) => {
+export const create = async (
+  session: User,
+  input: CreateBusinessInput,
+  headers: Headers,
+) => {
   if (!session) {
-    throw new Error("User not found");
+    throw new UnauthorizedError("User not found");
   }
 
-  if (session.isOnboarded) {
-    throw new Error("User already has a business");
+  if (session.isOnboarded || session.role === "vendor") {
+    throw new ConflictError("User already has a business");
   }
 
-  return await db.transaction(async (tx) => {
+  const newBusiness = await db.transaction(async (tx) => {
     const [newBusiness] = await tx.insert(business).values(input).returning();
 
     await tx.insert(businessMembers).values({
@@ -42,16 +47,18 @@ export const create = async (session: User, input: CreateBusinessInput) => {
       canViewOrders: true,
     });
 
-    await tx
-      .update(user)
-      .set({
-        isOnboarded: true,
-        role: "vendor",
-      })
-      .where(eq(user.id, session.id));
-
     return newBusiness;
   });
+
+  await auth.api.updateUser({
+    body: {
+      isOnboarded: true,
+      role: "vendor",
+    },
+    headers,
+  });
+
+  return newBusiness;
 };
 
 export const getByUserId = async (userId: string) => {
@@ -61,5 +68,6 @@ export const getByUserId = async (userId: string) => {
       business: true,
     },
   });
-  return record;
+
+  return record ?? null;
 };
