@@ -397,10 +397,7 @@ func (w *AIWorker) searchProducts(ctx context.Context, businessID, queryText str
 		return nil, nil
 	}
 
-	w.log.Info("before ranking", "candidates", candidates)
-
 	ordered := w.rerankProducts(ctx, queryText, candidates)
-	w.log.Info("after ranking", "candidates", ordered)
 
 	byID := make(map[string]models.ProductSearchCandidate, len(candidates))
 	for _, c := range candidates {

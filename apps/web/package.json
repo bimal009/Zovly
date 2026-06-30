@@ -13,7 +13,7 @@
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",
     "@paddle/paddle-js": "^1.6.4",
-    "@repo/database": "workspace:*",
+    "@repo/types": "workspace:*",
     "@repo/ui": "workspace:*",
     "@tabler/icons-react": "^3.44.0",
     "@tailwindcss/postcss": "^4.3.0",

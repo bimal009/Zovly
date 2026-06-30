@@ -1,0 +1,50 @@
+{
+  "name": "api-v1",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "tsx --watch main.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio"
+  },
+  "type": "module",
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@repo/eslint-config": "workspace:^",
+    "@repo/typescript-config": "workspace:*",
+    "@types/compression": "^1.8.1",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.0",
+    "@types/morgan": "^1.9.10",
+    "@types/node": "^26.0.1",
+    "@types/pg": "^8.20.0",
+    "@types/ws": "^8.18.1",
+    "drizzle-kit": "0.31.10",
+    "prisma": "^7.8.0",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3"
+  },
+  "dependencies": {
+    "@imagekit/nodejs": "^7.8.1",
+    "@neondatabase/serverless": "^1.1.0",
+    "@repo/types": "workspace:^",
+    "better-auth": "^1.6.10",
+    "compression": "^1.8.1",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "drizzle-orm": "0.45.2",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.5.2",
+    "helmet": "^8.2.0",
+    "imagekit": "^6.0.0",
+    "ioredis": "^5.11.1",
+    "morgan": "^1.11.0",
+    "pg": "^8.20.0",
+    "ws": "^8.21.0",
+    "zod": "^4.4.3"
+  }
+}

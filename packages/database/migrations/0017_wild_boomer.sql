@@ -1,1 +1,0 @@
-ALTER TYPE "public"."message_media_type" ADD VALUE 'link';

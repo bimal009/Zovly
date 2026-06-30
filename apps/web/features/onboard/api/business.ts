@@ -1,26 +1,15 @@
 import { axiosInstance } from "@/lib/axios";
 import { ApiResponse } from "@/lib/types/apiResponse";
-
-export type CreateBusinessInput = {
-  name: string;
-  description?: string;
-  logo?: string;
-  website?: string;
-  phone: string;
-  address?: string;
-  city: string;
-  country: string;
-  type: "product" | "service" | "both";
-};
+import type { CreateBusinessInput } from "@repo/types";
 
 export type BusinessResponse = {
   id: string;
   name: string;
-  description: string | null;
+  description: string;
   logo: string | null;
   website: string | null;
   phone: string | null;
-  address: string | null;
+  address: string;
   city: string | null;
   country: string;
   type: "product" | "service" | "both";

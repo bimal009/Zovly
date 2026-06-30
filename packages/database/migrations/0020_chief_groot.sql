@@ -1,1 +1,0 @@
-ALTER TABLE "product_variants" ADD COLUMN "cost_price" integer;

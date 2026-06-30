@@ -16,7 +16,7 @@ import { Button } from "@repo/ui/components/ui/button";
 import { Badge } from "@repo/ui/components/ui/badge";
 import { Separator } from "@repo/ui/components/ui/separator";
 import { cn } from "@repo/ui/utils";
-import { Plan } from "@/lib/types/plans";
+import { Plan } from "@repo/types";
 
 function formatLimit(value: number): string {
   if (value === -1) return "Unlimited";
@@ -24,30 +24,30 @@ function formatLimit(value: number): string {
 }
 
 const LIMIT_FEATURES: { key: keyof Plan; label: string }[] = [
-  { key: "max_members", label: "Team members" },
-  { key: "max_social_accounts", label: "Social accounts" },
-  { key: "max_posts_month", label: "Posts / month" },
-  { key: "max_ai_replies_month", label: "AI replies / month" },
-  { key: "max_leads", label: "Leads" },
+  { key: "maxMembers", label: "Team members" },
+  { key: "maxSocialAccounts", label: "Social accounts" },
+  { key: "maxPostsMonth", label: "Posts / month" },
+  { key: "maxAiRepliesMonth", label: "AI replies / month" },
+  { key: "maxLeads", label: "Leads" },
 ];
 
 const BOOL_FEATURES: { key: keyof Plan; label: string }[] = [
-  { key: "has_post_analytics", label: "Post analytics" },
-  { key: "has_multi_platform_post", label: "Multi-platform posting" },
-  { key: "has_video_upload", label: "Video upload" },
-  { key: "has_ai_dm_replies", label: "AI DM replies" },
-  { key: "has_ai_comment_replies", label: "AI comment replies" },
-  { key: "has_ai_lead_scoring", label: "AI lead scoring" },
-  { key: "has_ai_ad_suggestions", label: "AI ad suggestions" },
-  { key: "has_voice_transcription", label: "Voice transcription" },
-  { key: "has_image_understanding", label: "Image understanding" },
-  { key: "has_bookings", label: "Bookings" },
-  { key: "has_inventory", label: "Inventory management" },
-  { key: "has_payments", label: "payment Gateways" },
-  { key: "has_meta_ads", label: "Meta Ads" },
-  { key: "has_tiktok_ads", label: "TikTok Ads" },
-  { key: "has_google_workspace", label: "Google Workspace" },
-  { key: "has_priority_support", label: "Priority support" },
+  { key: "hasPostAnalytics", label: "Post analytics" },
+  { key: "hasMultiPlatformPost", label: "Multi-platform posting" },
+  { key: "hasVideoUpload", label: "Video upload" },
+  { key: "hasAiDmReplies", label: "AI DM replies" },
+  { key: "hasAiCommentReplies", label: "AI comment replies" },
+  { key: "hasAiLeadScoring", label: "AI lead scoring" },
+  { key: "hasAiAdSuggestions", label: "AI ad suggestions" },
+  { key: "hasVoiceTranscription", label: "Voice transcription" },
+  { key: "hasImageUnderstanding", label: "Image understanding" },
+  { key: "hasBookings", label: "Bookings" },
+  { key: "hasInventory", label: "Inventory management" },
+  { key: "hasPayments", label: "payment Gateways" },
+  { key: "hasMetaAds", label: "Meta Ads" },
+  { key: "hasTikTokAds", label: "TikTok Ads" },
+  { key: "hasGoogleWorkspace", label: "Google Workspace" },
+  { key: "hasPrioritySupport", label: "Priority support" },
 ];
 
 function PlanCardSkeleton() {
@@ -79,7 +79,6 @@ const Plans = () => {
   return (
     <section className="px-4 py-16">
       <div className="mx-auto max-w-6xl">
-        {/* Header */}
         <div className="mb-12 text-center">
           <h2 className="text-3xl font-semibold tracking-tight">
             Simple, transparent pricing
@@ -89,7 +88,6 @@ const Plans = () => {
             time.
           </p>
 
-          {/* Billing toggle */}
           <div className="mt-6 inline-flex items-center gap-1 rounded-4xl bg-muted p-1">
             <button
               onClick={() => setBilling("monthly")}
@@ -137,8 +135,8 @@ const Plans = () => {
                   const isPopular = plan.name.toLowerCase().includes("growth");
                   const price =
                     billing === "monthly"
-                      ? plan.monthly_price
-                      : plan.yearly_price;
+                      ? plan.monthlyPrice
+                      : plan.yearlyPrice;
                   const isFree = price === 0;
 
                   return (
@@ -177,7 +175,7 @@ const Plans = () => {
                         <CardDescription className="min-h-[1.25rem]">
                           {billing === "yearly" && !isFree && (
                             <span className="text-xs font-medium text-primary">
-                              ${Math.round(plan.yearly_price / 100 / 12)}/mo
+                              ${Math.round(plan.yearlyPrice / 100 / 12)}/mo
                               billed annually
                             </span>
                           )}

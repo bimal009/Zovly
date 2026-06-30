@@ -160,10 +160,6 @@ const (
 	rrfK            = 60 // RRF damping constant
 )
 
-// HybridSearch fuses semantic (pgvector), full-text (tsvector), and trigram
-// (pg_trgm) rankings via RRF and returns the top fused candidates, each with a
-// short passage for downstream reranking. The query vector must be embedded with
-// the e5 `query:` prefix by the caller.
 func (r *productRepo) HybridSearch(ctx context.Context, businessID, query string, vec pgvector.Vector) ([]models.ProductSearchCandidate, error) {
 	if strings.TrimSpace(query) == "" {
 		return []models.ProductSearchCandidate{}, nil
@@ -182,7 +178,6 @@ func (r *productRepo) HybridSearch(ctx context.Context, businessID, query string
 		return nil, fmt.Errorf("hybrid trigram: %w", err)
 	}
 
-	// Reciprocal Rank Fusion: score(p) = Σ 1 / (k + rank_in_list).
 	scores := make(map[string]float64)
 	fuse := func(ids []string) {
 		for i, id := range ids {
@@ -227,8 +222,6 @@ func (r *productRepo) HybridSearch(ctx context.Context, businessID, query string
 }
 
 func (r *productRepo) rankSemantic(ctx context.Context, businessID string, vec pgvector.Vector) ([]string, error) {
-	// DISTINCT ON collapses any product that still has multiple chunks to its
-	// closest one, so a product can't occupy several semantic ranks.
 	const q = `
 		SELECT id FROM (
 			SELECT DISTINCT ON (p.id) p.id, kc.embedding <=> $1 AS dist

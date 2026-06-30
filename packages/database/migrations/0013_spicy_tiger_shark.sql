@@ -1,1 +1,0 @@
-ALTER TABLE "app_credentials" ADD CONSTRAINT "app_cred_account_uq" UNIQUE("business_id","app_name","platform_account_id");

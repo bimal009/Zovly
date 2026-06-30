@@ -53,7 +53,10 @@ export function LoginForm({
   };
 
   const handleGoogle = async () => {
-    await authClient.signIn.social({ provider: "google", callbackURL: "/" });
+    await authClient.signIn.social({
+      provider: "google",
+      callbackURL: process.env.NEXT_PUBLIC_APP_URL!,
+    });
   };
 
   return (
@@ -127,9 +130,15 @@ export function LoginForm({
                     onClick={togglePassword}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                     tabIndex={-1}
-                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    aria-label={
+                      showPassword ? "Hide password" : "Show password"
+                    }
                   >
-                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    {showPassword ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
                   </button>
                 </div>
               </Field>

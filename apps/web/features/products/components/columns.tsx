@@ -28,7 +28,7 @@ function formatPrice(cents: number, currency: string) {
     style: "currency",
     currency,
     minimumFractionDigits: 2,
-  }).format(cents / 100);
+  }).format(cents);
 }
 
 interface ColumnActions {
