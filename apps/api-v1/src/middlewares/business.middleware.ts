@@ -78,3 +78,31 @@ export const businessEditAuthorization = async (
 
   next();
 };
+
+
+export const businessSettingsAuthorization = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  const user = req.user as User;
+  if (!user) {
+    return next(new UnauthorizedError("User not found"));
+  }
+
+  if (!req.params.id) {
+    return next(new BadRequestError("Business ID is required"));
+  }
+
+  const member = await getByBusinessAndUserId(req.params.id as string, user.id);
+  if (!member) {
+    return next(new UnauthorizedError("You are not a member of this business"));
+  }
+
+  if (!member.canManageSettings) {
+    return next(new ForbiddenError("You can't manage this business's settings"));
+  }
+  req.member = member;
+
+  next();
+};

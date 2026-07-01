@@ -9,7 +9,6 @@ import {
   index,
 } from "drizzle-orm/pg-core";
 import { businessMembers } from "./members";
-import { appConnections } from "./apps";
 import { products } from "./products";
 import { services } from "./services";
 import { policies } from "./policies";
@@ -20,7 +19,7 @@ export const businessTypeEnum = pgEnum("business_type", [
   "both",
 ]);
 
-export const planEnum = pgEnum("plan", ["starter", "growth", "pro", "agency"]);
+export const planEnum = pgEnum("plan", ["starter", "growth", "pro"]);
 
 export const business = pgTable(
   "business",
@@ -51,10 +50,7 @@ export type NewBusiness = typeof business.$inferInsert;
 
 export const businessRelations = relations(business, ({ one, many }) => ({
   members: many(businessMembers),
-  appConnections: one(appConnections, {
-    fields: [business.id],
-    references: [appConnections.businessId],
-  }),
+
   products: many(products),
   services: many(services),
   policies: many(policies),

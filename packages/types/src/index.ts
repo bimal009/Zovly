@@ -5,3 +5,4 @@ export { createBusinessSchema, updateBusinessSchema } from "./business";
 export type { CreateBusinessInput, UpdateBusinessInput } from "./business";
 export { createFaqSchema, updateFaqSchema } from "./faqs";
 export type { CreateFaqInput, UpdateFaqInput,Faq } from "./faqs";
+export type { ConnectedPage, PageDetails } from "./appCredintials";

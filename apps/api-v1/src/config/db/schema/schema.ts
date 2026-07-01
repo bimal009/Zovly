@@ -1,6 +1,5 @@
 export * from "./user";
 export * from "./business";
-export * from "./apps";
 export * from "./members";
 export * from "./plans";
 export * from "./subscriptions";

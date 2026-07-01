@@ -4,7 +4,7 @@ import {
   businessEditAuthorization,
   validateBusiness,
   validateBusinessMember,
-} from "../../middlewares/business.midlleware";
+} from "../../middlewares/business.middleware";
 import { validate } from "../../middlewares/validate.middleware";
 import {
   createFaqSchema,

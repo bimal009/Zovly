@@ -4,7 +4,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "@repo/ui/components/ui/sonner";
 import {
   activateInstagram,
-  getBusinessAppConnections,
   getFacebookConnectionStatus,
   getInstagramConnectionStatus,
   subscribeInstagramWebhook,
@@ -14,39 +13,33 @@ import {
 
 export const CONNECTIONS_KEY = ["connections"] as const;
 
-export const useBusinessAppConnections = () => {
-  return useQuery({
-    queryKey: [...CONNECTIONS_KEY, "apps"],
-    queryFn: getBusinessAppConnections,
-  });
-};
-
-// Pulls a human-readable message out of an axios/API error, falling back to a default.
 function errMessage(error: unknown, fallback: string): string {
   const data = (error as { response?: { data?: { message?: string } } })?.response
     ?.data;
   return data?.message ?? fallback;
 }
 
-export const useFacebookConnectionStatus = () => {
-  return useQuery({
-    queryKey: [...CONNECTIONS_KEY, "facebook"],
-    queryFn: getFacebookConnectionStatus,
-  });
-};
 
-export const useToggleFacebookPage = () => {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (pageId: string) => toggleFacebookPage(pageId),
-    onSuccess: (res) => {
-      toast.success(res.message);
-      qc.invalidateQueries({ queryKey: [...CONNECTIONS_KEY, "facebook"] });
-    },
-    onError: (error) =>
-      toast.error(errMessage(error, "Failed to update page")),
+
+export function useFacebookConnectionStatus(businessId: string) {
+  return useQuery({
+    queryKey: ["facebook-connection-status", businessId],
+    queryFn: () => getFacebookConnectionStatus(businessId),
+    enabled: !!businessId,
   });
-};
+}
+
+export function useToggleFacebookPage(businessId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ pageId, isActive }: { pageId: string; isActive: boolean }) =>
+      toggleFacebookPage(businessId, pageId, isActive),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["facebook-connection-status", businessId] });
+    },
+  });
+}
 
 export const useInstagramConnectionStatus = () => {
   return useQuery({
@@ -55,12 +48,7 @@ export const useInstagramConnectionStatus = () => {
   });
 };
 
-export const useMessengerConnectionStatus = () => {
-  return useQuery({
-    queryKey: [...CONNECTIONS_KEY, "facebook"],
-    queryFn: getFacebookConnectionStatus,
-  });
-};
+
 
 export const useSubscribeMessengerPage = () => {
   const qc = useQueryClient();

@@ -26,7 +26,7 @@ export const permissionActionEnum = pgEnum("permission_action", [
   "read",
   "write",
   "delete",
-  "manage", // read + write + delete
+  "manage",
 ]);
 
 export const businessMembers = pgTable(
