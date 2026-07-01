@@ -1,7 +1,12 @@
 import { SiteHeader } from "@repo/ui/components/ui/site-header";
 import { FaqList } from "@/features/faq/components/faq-list";
 
-export default function BusinessInfoPage() {
+interface BusinessInfoPageProps {
+ params: Promise<{ id: string }>;
+}
+
+export default async function BusinessInfoPage ({ params }: BusinessInfoPageProps) {
+  const { id } = await params; 
   return (
     <>
       <SiteHeader title="Business Info" />
@@ -9,7 +14,7 @@ export default function BusinessInfoPage() {
         <div className="@container/main flex flex-1 flex-col gap-2">
           <div className="flex flex-col gap-4 py-4 md:gap-6 md:py-6">
             <div className="px-4 lg:px-6">
-              <FaqList />
+              <FaqList businessId={id}  />
             </div>
           </div>
         </div>

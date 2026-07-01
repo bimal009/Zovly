@@ -17,7 +17,7 @@ export const appConnections = pgTable(
     businessId: uuid("business_id")
       .references(() => business.id, { onDelete: "cascade" })
       .notNull()
-      .unique(), // one row per business, always
+      .unique(),
 
     instagram: boolean("instagram").default(false).notNull(),
     facebook: boolean("facebook").default(false).notNull(),

@@ -51,7 +51,10 @@ export type NewBusiness = typeof business.$inferInsert;
 
 export const businessRelations = relations(business, ({ one, many }) => ({
   members: many(businessMembers),
-  appConnections: one(appConnections, { fields: [business.id], references: [appConnections.businessId] }),
+  appConnections: one(appConnections, {
+    fields: [business.id],
+    references: [appConnections.businessId],
+  }),
   products: many(products),
   services: many(services),
   policies: many(policies),

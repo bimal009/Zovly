@@ -1,4 +1,5 @@
 import {
+  boolean,
   index,
   integer,
   jsonb,
@@ -33,6 +34,7 @@ export const knowledgeChunks = pgTable(
     content: text("content").notNull(), // clean chunk text (no e5 prefix)
     embedding: vector("embedding", { dimensions: 1024 }).notNull(),
     metadata: jsonb("metadata"), // faq: { question }; post: { url, publishedAt }; product: { price, currency, sku, inStock }
+    isActive: boolean("is_active").default(true).notNull(), // mirrors source row's active state; excluded from retrieval when false
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [

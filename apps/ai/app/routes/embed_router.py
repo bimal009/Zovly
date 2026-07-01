@@ -20,8 +20,6 @@ def embed_faq(req: FaqRequest):
 class EmbedRequest(BaseModel):
     text: str
     kind: Literal["passage", "query"] = "passage"
-    # chunk=False embeds the whole text as a single vector (atomic items like
-    # products). prefix is prepended to chunks only if a long passage is split.
     chunk: bool = True
     prefix: Optional[str] = None
 

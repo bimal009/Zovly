@@ -13,6 +13,9 @@ export class ConflictError extends AppError {}
 export class NotFoundError extends AppError {}
 export class UnauthorizedError extends AppError {}
 export class ForbiddenError extends AppError {}
+export class InternalServerError extends AppError {}
+export class BadRequestError extends AppError {}
+export class ServiceUnavailableError extends AppError {}
 
 export const handleError = (res: Response, label: string, error: unknown) => {
   console.error(`${label} error:`, error);

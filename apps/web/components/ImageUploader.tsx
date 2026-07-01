@@ -27,20 +27,14 @@ interface UploadEntry {
 }
 
 export interface ImageUploaderProps {
-  /** 1 = compact logo/avatar mode. 0 = unlimited gallery. >1 = capped gallery. */
   maxImages?: number;
   maxFileSizeBytes?: number;
-  /** ImageKit folder path, e.g. "/logos" */
   folder?: string;
   accept?: string[];
-  /** Called with the CDN URL each time an image finishes uploading */
   onUpload?: (url: string) => void;
-  /** Called with the full list of done CDN URLs whenever it changes */
   onUploadsChange?: (urls: string[]) => void;
   className?: string;
-  /** Label shown above the uploader */
   label?: string;
-  /** Pre-existing CDN URLs to display on mount (e.g. when editing a record) */
   initialUrls?: string[];
 }
 
@@ -80,8 +74,6 @@ async function uploadToImageKit(file: File, folder: string): Promise<string> {
   return json.url as string;
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
-
 export const ImageUploader = React.forwardRef<
   HTMLDivElement,
   ImageUploaderProps
@@ -115,7 +107,9 @@ export const ImageUploader = React.forwardRef<
     const inputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
-      const urls = entries.filter((e) => e.status === "done").map((e) => e.url!);
+      const urls = entries
+        .filter((e) => e.status === "done")
+        .map((e) => e.url!);
       onUploadsChange?.(urls);
     }, [entries, onUploadsChange]);
 

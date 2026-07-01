@@ -3,23 +3,18 @@
 import Link from "next/link";
 import { Zap } from "lucide-react";
 import { useSession } from "@/lib/auth-client";
-import { useGetBusiness } from "@/features/business/client/business";
 import { Button } from "@repo/ui/components/ui/button";
 
 export function Navbar() {
   const { data: sessionData, isPending: sessionPending } = useSession();
-
+  console.log(sessionData?.session.token);
   const user = sessionData?.user;
   const hasSession = !!sessionData?.session;
-  console.log(sessionData?.session.token)
-
-  const { data: businessData, isPending: businessPending } =
-    useGetBusiness(hasSession);
-  const businessId = businessData?.data?.Business?.id;
 
   let ctaHref = "/signup";
   let ctaLabel = "Get started free";
   let showSignIn = true;
+  const businessId = "495f97b5-b065-46b1-9289-e660b4fbea29";
 
   if (hasSession) {
     showSignIn = false;
@@ -32,7 +27,7 @@ export function Navbar() {
     }
   }
 
-  const loading = !!(sessionPending || (hasSession && businessPending));
+  const loading = !!sessionPending;
 
   return (
     <header className="sticky top-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-md">

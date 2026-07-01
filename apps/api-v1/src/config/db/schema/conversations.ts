@@ -22,20 +22,16 @@ export const conversations = pgTable(
       .references(() => business.id, { onDelete: "cascade" }),
 
     platform: platformEnum("platform").notNull(),
-    threadId: text("thread_id").notNull(), // platform-native thread/conversation ID
-    contactId: text("contact_id").notNull(), // platform-native user/contact ID
+    threadId: text("thread_id").notNull(),
+    contactId: text("contact_id").notNull(), 
 
     contactName: text("contact_name"),
-    contactUsername: text("contact_username"), // IG @handle; null for Messenger
+    contactUsername: text("contact_username"), 
     contactAvatarUrl: text("contact_avatar_url"),
 
     lastMessageAt: timestamp("last_message_at").defaultNow().notNull(),
 
-    // the product currently under discussion (for follow-up context)
-    activeProductId: uuid("active_product_id").references(() => products.id, {
-      onDelete: "set null",
-    }),
-    activeProductAt: timestamp("active_product_at"), // when it was set (for staleness)
+
 
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
@@ -51,6 +47,5 @@ export const conversations = pgTable(
 
 export const conversationsRelations = relations(conversations, ({ one, many }) => ({
   business: one(business, { fields: [conversations.businessId], references: [business.id] }),
-  activeProduct: one(products, { fields: [conversations.activeProductId], references: [products.id] }),
   messages: many(messages),
 }));

@@ -10,6 +10,9 @@ const requiredEnvVars = [
   "FRONTEND_URL",
   "GOOGLE_CLIENT_ID",
   "GOOGLE_CLIENT_SECRET",
+  "META_APP_ID",
+  "META_APP_SECRET",
+  "META_REDIRECT_URI",
 ] as const;
 
 for (const key of requiredEnvVars) {
@@ -70,14 +73,29 @@ export const auth = betterAuth({
     },
   },
 
-  socialProviders: {
-    google: {
-      clientId: process.env.GOOGLE_CLIENT_ID!,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-      callbackURL: `${process.env.BETTER_AUTH_URL}/api/v1/auth/callback/google`,
-      errorCallbackURL: `${process.env.BETTER_AUTH_URL}/api/v1/auth/callback/google?error=true`,
-    },
+socialProviders: {
+  google: {
+    clientId: process.env.GOOGLE_CLIENT_ID!,
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+    callbackURL: `${process.env.BETTER_AUTH_URL}/api/v1/auth/callback/google`,
+    errorCallbackURL: `${process.env.BETTER_AUTH_URL}/api/v1/auth/callback/google?error=true`,
   },
+  facebook: {
+    clientId: process.env.META_APP_ID!,
+    clientSecret: process.env.META_APP_SECRET!,
+    scope: [
+      "pages_show_list",
+      "pages_manage_posts",
+      "pages_read_engagement",
+      "pages_manage_metadata",
+      "pages_read_user_content",
+      "pages_messaging",
+      "business_management",
+    ],
+    encryptOAuthTokens: true,
+  },
+},
+
 
   user: {
     additionalFields: {
@@ -87,6 +105,7 @@ export const auth = betterAuth({
         defaultValue: "user",
         input: true,
       },
+
       isOnboarded: {
         type: "boolean",
         required: false,

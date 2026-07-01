@@ -17,18 +17,18 @@ import {
   useGetFaqs,
   useUpdateFaq,
 } from "../client/faq";
-import type { CreateFaqInput, Faq, UpdateFaqInput } from "../api/faq";
 import { FaqFormDialog } from "./faq-form-dialog";
+import { toast } from "@repo/ui/components/ui/sonner";
+import { CreateFaqInput, Faq, UpdateFaqInput } from "@repo/types";
 
-export function FaqList() {
-  const { data, isLoading } = useGetFaqs();
-  const createMutation = useCreateFaq();
-  const updateMutation = useUpdateFaq();
-  const deleteMutation = useDeleteFaq();
+export function FaqList(businessId:{businessId:string}) {
+  const { data, isLoading } = useGetFaqs(businessId.businessId);
+  const createMutation = useCreateFaq(businessId.businessId);
+  const updateMutation = useUpdateFaq(businessId.businessId);
+  const deleteMutation = useDeleteFaq(businessId.businessId);
 
   const faqs = data?.data ?? [];
   const saving = createMutation.isPending || updateMutation.isPending;
-  const saveError = createMutation.error ?? updateMutation.error ?? null;
 
   const [formOpen, setFormOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<Faq | null>(null);
@@ -48,16 +48,38 @@ export function FaqList() {
     data: CreateFaqInput | { id: string; input: UpdateFaqInput }
   ) {
     if ("id" in data) {
-      updateMutation.mutate(data, { onSuccess: () => setFormOpen(false) });
+      updateMutation.mutate(data, {
+        onSuccess: (res) => {
+          toast.success(res?.message ?? "FAQ updated successfully");
+          setFormOpen(false);
+        },
+        onError: (error) => {
+          toast.error(error?.message ?? "Failed to update FAQ");
+        },
+      });
     } else {
-      createMutation.mutate(data, { onSuccess: () => setFormOpen(false) });
+      createMutation.mutate(data, {
+        onSuccess: (res) => {
+          toast.success(res?.message ?? "FAQ added successfully");
+          setFormOpen(false);
+        },
+        onError: (error) => {
+          toast.error(error?.message ?? "Failed to add FAQ");
+        },
+      });
     }
   }
 
   function handleConfirmDelete() {
     if (!deleteTarget) return;
     deleteMutation.mutate(deleteTarget.id, {
-      onSuccess: () => setDeleteTarget(null),
+      onSuccess: (res) => {
+        toast.success(res?.message ?? "FAQ deleted successfully");
+        setDeleteTarget(null);
+      },
+      onError: (error) => {
+        toast.error(error?.message ?? "Failed to delete FAQ");
+      },
     });
   }
 
@@ -149,7 +171,6 @@ export function FaqList() {
         editing={editing}
         onSave={handleSave}
         saving={saving}
-        saveError={saveError}
       />
 
       <ConfirmDeleteDialog

@@ -1,11 +1,7 @@
+import { Meta } from "@repo/types";
 import { Response } from "express";
 
-interface Meta {
-  page?: number;
-  limit?: number;
-  total?: number;
-  totalPages?: number;
-}
+
 
 interface ApiResponse<T> {
   success: boolean;

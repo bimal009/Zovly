@@ -63,6 +63,13 @@ export function SignupForm({
     });
   };
 
+  const handleFacebook = async () => {
+    await authClient.signIn.social({
+      provider: "facebook",
+      callbackURL: process.env.NEXT_PUBLIC_APP_URL!,
+    });
+  }
+
   return (
     <div className={cn("flex flex-col gap-6", className)} {...props}>
       <Card>
@@ -94,6 +101,22 @@ export function SignupForm({
                   </svg>
                   Sign up with Google
                 </Button>
+
+<Button
+  variant="outline"
+  type="button"
+  onClick={handleFacebook}
+  disabled={loading}
+>
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    className="mr-2 h-4 w-4 fill-[#1877F2]"
+  >
+    <path d="M24 12.073C24 5.405 18.627 0 12 0S0 5.405 0 12.073c0 6.019 4.388 11.009 10.125 11.927v-8.437H7.078v-3.49h3.047V9.41c0-3.007 1.792-4.669 4.533-4.669 1.313 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.926-1.956 1.875v2.25h3.328l-.532 3.49h-2.796V24C19.612 23.082 24 18.092 24 12.073z" />
+  </svg>
+  Sign up with Facebook
+</Button>
               </Field>
               <FieldSeparator className="*:data-[slot=field-separator-content]:bg-card">
                 Or continue with

@@ -11,7 +11,7 @@ import {
 import { business } from "./business";
 import { plans } from "./plans";
 import { paymentRecords } from "./payments";
-import { billingCycleEnum, planStatusEnum } from "./enums"; // ← from enums
+import { billingCycleEnum, planStatusEnum } from "./enums";
 
 export const businessSubscriptions = pgTable(
   "business_subscriptions",
@@ -69,8 +69,17 @@ export const businessSubscriptions = pgTable(
 export type BusinessSubscription = typeof businessSubscriptions.$inferSelect;
 export type NewBusinessSubscription = typeof businessSubscriptions.$inferInsert;
 
-export const businessSubscriptionsRelations = relations(businessSubscriptions, ({ one, many }) => ({
-  plan: one(plans, { fields: [businessSubscriptions.planId], references: [plans.id] }),
-  business: one(business, { fields: [businessSubscriptions.businessId], references: [business.id] }),
-  payments: many(paymentRecords),
-}));
+export const businessSubscriptionsRelations = relations(
+  businessSubscriptions,
+  ({ one, many }) => ({
+    plan: one(plans, {
+      fields: [businessSubscriptions.planId],
+      references: [plans.id],
+    }),
+    business: one(business, {
+      fields: [businessSubscriptions.businessId],
+      references: [business.id],
+    }),
+    payments: many(paymentRecords),
+  }),
+);

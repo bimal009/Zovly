@@ -1,4 +1,3 @@
-// business.service.ts
 import { eq } from "drizzle-orm";
 import { CreateBusinessInput } from "@repo/types";
 
@@ -6,7 +5,13 @@ import { db } from "../../config/db/db";
 import { business } from "../../config/db/schema/business";
 import { auth, User } from "../../lib/auth";
 import { businessMembers } from "../../config/db/schema/members";
-import { ConflictError, UnauthorizedError } from "../../lib/errors";
+import {
+  ConflictError,
+  InternalServerError,
+  NotFoundError,
+  UnauthorizedError,
+} from "../../lib/errors";
+import { getByUserId } from "../business members/members.service";
 
 export const create = async (
   session: User,
@@ -17,9 +22,12 @@ export const create = async (
     throw new UnauthorizedError("User not found");
   }
 
-  if (session.isOnboarded || session.role === "vendor") {
-    throw new ConflictError("User already has a business");
+  const existingMember = await getByUserId(session.id);
+
+  if (existingMember) {
+    throw new ConflictError("User already has a business.");
   }
+  console.log(existingMember);
 
   const newBusiness = await db.transaction(async (tx) => {
     const [newBusiness] = await tx.insert(business).values(input).returning();
@@ -45,29 +53,38 @@ export const create = async (
       canViewInventory: true,
       canViewLeads: true,
       canViewOrders: true,
+      canEditBusiness:true,
+      
     });
 
-    return newBusiness;
-  });
+    try {
+      await auth.api.updateUser({
+        body: {
+          isOnboarded: true,
+          role: "vendor",
+        },
+        headers,
+      });
+    } catch (err) {
+      throw new InternalServerError(
+        "Failed to update user session. Please try again. Error: " + err,
+      );
+    }
 
-  await auth.api.updateUser({
-    body: {
-      isOnboarded: true,
-      role: "vendor",
-    },
-    headers,
+    return newBusiness;
   });
 
   return newBusiness;
 };
 
-export const getByUserId = async (userId: string) => {
-  const record = await db.query.businessMembers.findFirst({
-    where: eq(businessMembers.userId, userId),
-    with: {
-      business: true,
-    },
+export const getById = async (id: string) => {
+  const record = await db.query.business.findFirst({
+    where: eq(business.id, id),
   });
 
-  return record ?? null;
+  if (!record) {
+    throw new NotFoundError("Business not found");
+  }
+
+  return record;
 };

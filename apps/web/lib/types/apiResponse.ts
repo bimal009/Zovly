@@ -1,3 +1,5 @@
+import { Meta } from "@repo/types";
+
 export type ApiResponse<T> = {
   success: boolean;
   message: string;
@@ -5,16 +7,12 @@ export type ApiResponse<T> = {
   data: T;
 };
 
-export type PaginatedMeta = {
-  total: number;
-  limit: number;
-  offset: number;
-};
+
 
 export type PaginatedResponse<T> = {
   success: boolean;
   message: string;
   error?: string;
   data: T;
-  meta: PaginatedMeta;
+  meta: Meta;
 };

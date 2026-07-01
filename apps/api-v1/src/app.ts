@@ -14,6 +14,7 @@ import { auth } from "./lib/auth";
 import imagekitRouter from "./modules/imagekit/imagekit.routes";
 import { plansRoutes } from "./modules/plans/plans.routes";
 import businessRouter from "./modules/business/business.routes";
+import faqRouter from "./modules/faq/faq.route";
 const isProd = process.env.NODE_ENV === "production";
 
 const allowedOrigins =
@@ -100,6 +101,7 @@ app.get("/api/v1/health", (_req: Request, res: Response) => {
 app.use("/api/v1/images", imagekitRouter);
 app.use("/api/v1/plans", plansRoutes);
 app.use("/api/v1/business", businessRouter);
+app.use("/api/v1/faq", faqRouter);
 
 app.use((_req: Request, res: Response) => {
   res.status(404).json({ success: false, message: "Route not found" });

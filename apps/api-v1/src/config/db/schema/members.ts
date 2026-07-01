@@ -64,6 +64,7 @@ export const businessMembers = pgTable(
       .notNull()
       .default(false),
     canViewOrders: boolean("can_view_orders").notNull().default(false),
+    canEditBusiness: boolean("can_edit_business").notNull().default(false),
 
     // Settings
     canManageSettings: boolean("can_manage_settings").notNull().default(false), // app connections, AI persona
@@ -93,7 +94,16 @@ export type BusinessMember = typeof businessMembers.$inferSelect;
 export type NewBusinessMember = typeof businessMembers.$inferInsert;
 export type MemberRole = (typeof memberRoleEnum.enumValues)[number];
 
-export const businessMembersRelations = relations(businessMembers, ({ one }) => ({
-  business: one(business, { fields: [businessMembers.businessId], references: [business.id] }),
-  user: one(user, { fields: [businessMembers.userId], references: [user.id] }),
-}));
+export const businessMembersRelations = relations(
+  businessMembers,
+  ({ one }) => ({
+    business: one(business, {
+      fields: [businessMembers.businessId],
+      references: [business.id],
+    }),
+    user: one(user, {
+      fields: [businessMembers.userId],
+      references: [user.id],
+    }),
+  }),
+);

@@ -1,8 +1,9 @@
 import { Request, Response } from "express";
-import { create, getByUserId } from "./business.service";
+import { create, getById } from "./business.service";
 import { User } from "../../lib/auth";
 import { AppResponse } from "../../lib/response";
 import { handleError } from "../../lib/errors";
+import { getByUserId } from "../business members/members.service";
 
 export const createBusiness = async (req: Request, res: Response) => {
   try {
@@ -20,10 +21,19 @@ export const createBusiness = async (req: Request, res: Response) => {
 
 export const getBusinessByUserId = async (req: Request, res: Response) => {
   try {
-    const business = await getByUserId(req.user?.id as string);
+    const business = await getById(req.user?.id as string);
 
     return AppResponse.ok(res, business, "User business fetched successfully");
   } catch (error) {
     return handleError(res, "getBusinessByUserId", error);
+  }
+};
+
+export const getBusinessById = async (req: Request, res: Response) => {
+  try {
+    const business = await getById(req.user?.id as string);
+    return AppResponse.ok(res, business, "Business fetched successfully");
+  } catch (error) {
+    return handleError(res, "getBusinessById", error);
   }
 };
