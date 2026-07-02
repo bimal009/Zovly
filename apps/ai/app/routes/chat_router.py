@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from app.core.chat.embedding import embedding
 from app.core.chat.chat import ChatService, get_chat_service
 from app.core.chat.rerank import rerank
-from app.models.chat import ChatEmbeddingRequest, ChatRequest, ChatReqModel, ChatImageRequest, ChatAudioRequest
+from app.models.chat import ChatEmbeddingRequest, ChatIntentReqModel, ChatRequest, ChatReqModel, ChatImageRequest, ChatAudioRequest
 
 
 chat_router = APIRouter()
@@ -37,6 +37,14 @@ def chat(req: ChatRequest, service: ChatService = Depends(get_chat_service)):
 def chat_reply(req: ChatReqModel, service: ChatService = Depends(get_chat_service)):
     reply = service.handle_with_context(req)
     return {"reply": reply.message, "images": reply.images}
+
+
+
+@chat_router.post("/chat/intent")
+def chat_intent(req: ChatIntentReqModel , service: ChatService = Depends(get_chat_service)):
+    reply = service.handle_chat_intent(req)
+    return reply.model_dump()
+
 
 
 @chat_router.post("/chat/embed")

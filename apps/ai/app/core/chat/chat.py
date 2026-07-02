@@ -3,12 +3,14 @@ import re
 import subprocess
 import logging
 import tempfile
+
+from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 import requests
 from langchain_openai import ChatOpenAI
 from langchain.agents import create_agent
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage
-from app.models.chat import ChatReqModel, ChatImageRequest, ChatAudioRequest, AgentReply
+from app.models.chat import  ChatReqModel, ChatImageRequest, ChatAudioRequest, AgentReply, ExtractedEntities, IntentExtractionResult, SubIntent,ChatIntentReqModel
 from app.core.tools.product import (
     get_category_product_count,
     get_products_by_category,
@@ -30,6 +32,16 @@ model = ChatOpenAI(
     openai_api_base="https://openrouter.ai/api/v1",
     timeout=30,
 )
+
+intent_model = ChatOpenAI(
+    model="openai/gpt-4o-mini",
+    openai_api_key=os.getenv("OPENROUTER_API_KEY"),
+    openai_api_base="https://openrouter.ai/api/v1",
+    timeout=30,
+)
+
+intent_llm = intent_model.with_structured_output(IntentExtractionResult)
+
 
 agent = create_agent(
     model,
@@ -282,10 +294,67 @@ class ChatService:
         except Exception:
             logger.exception("handle_images failed for url=%s", image_url)
             return "I'm having trouble analyzing this image right now. A team member will get back to you shortly."
+        
+
+        
 
 
+    def handle_chat_intent(self, req: ChatIntentReqModel) -> IntentExtractionResult:
+        system = """
+        You are an intent extraction assistant for a social-commerce chat agent.
 
+        Extract one or more intents from the user's message. Messages are often
+        multi-intent (e.g. asking about an order AND a product AND a policy in
+        one message) — split these into separate sub_intents.
 
+        Valid intents:
+        - product_search: asking about or looking for a product
+        - service_inquiry: asking about a bookable service
+        - event_inquiry: asking about an event or ticket
+        - order_status: asking about an existing order
+        - policy_faq: asking about refunds, shipping, business policy
+        - booking_confirm: confirming a booking or payment
+        - cart_action: adding/removing/checking out an item already discussed
+        - small_talk: greetings, thanks, casual chat with no request
+        - complaint: expressing dissatisfaction or a problem
+        - unknown: intent is unclear — do not guess
+
+        Rules:
+        - Return a JSON object matching the provided schema.
+        - Split compound requests into multiple sub_intents.
+        - Each sub_intent must contain: intent, text (the exact portion of the
+          user's message corresponding to that intent), entities, confidence (0-1).
+        - Populate only entities explicitly mentioned or confidently inferred —
+          never invent values.
+        - Use recent conversation context to resolve ambiguous references
+          (e.g. "how much?" referring to a product mentioned earlier).
+        - If intent is unclear even with context, use intent="unknown" rather
+          than guessing — do not force a low-confidence label onto a specific
+          intent.
+        - Messages may be in Nepali, English, or Romanized Nepali — handle all
+          three.
+        """
+
+        history_block = "\n".join(req.recent_turns) if req.recent_turns else "(no prior context)"
+        human_content = f"Recent conversation:\n{history_block}\n\nCurrent message:\n{req.message}"
+
+        try:
+            return intent_llm.invoke([
+                SystemMessage(content=system),
+                HumanMessage(content=human_content),
+            ])
+        except Exception as e:
+            logger.error(f"Intent extraction failed for message={req.message!r}: {e}")
+            return IntentExtractionResult(
+                sub_intents=[
+                    SubIntent(
+                        intent="unknown",
+                        text=req.message,
+                        entities=ExtractedEntities(),
+                        confidence=0.0,
+                    )
+                ]
+            )
 
     def handle_audio(self, req: ChatAudioRequest) -> str:
         audio_url = req.url

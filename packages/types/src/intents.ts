@@ -29,7 +29,7 @@ export interface ExtractedEntities {
 
 export interface SubIntent {
   intent: IntentType;
-  text: string;            // the relevant slice of the original message
+  text: string;          
   entities: ExtractedEntities;
   confidence: number;      // 0-1
 }

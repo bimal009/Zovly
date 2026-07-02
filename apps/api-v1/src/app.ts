@@ -16,6 +16,7 @@ import { plansRoutes } from "./modules/plans/plans.routes";
 import businessRouter from "./modules/business/business.routes";
 import faqRouter from "./modules/faq/faq.route";
 import facebookRouter from "./modules/facebook/facebook.routes";
+import facebookWebhookRouter from "./modules/facebook-webhooks/facebook-webhooks.route";
 const isProd = process.env.NODE_ENV === "production";
 
 const allowedOrigins =
@@ -85,6 +86,7 @@ export const authLimiter = rateLimit({
 app.all("/api/v1/auth/{*path}", toNodeHandler(auth));
 app.use(express.json({ limit: "10kb" }));
 app.use(express.urlencoded({ extended: true, limit: "10kb" }));
+app.use("/api/v1/webhook/meta/facebook", facebookWebhookRouter);
 
 app.use(compression());
 app.use(morgan(isProd ? "combined" : "dev"));

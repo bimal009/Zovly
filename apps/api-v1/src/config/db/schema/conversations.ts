@@ -7,10 +7,10 @@ import {
   boolean,
   index,
   unique,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { business } from "./business";
 import { messages } from "./messages";
-import { products } from "./products";
 import { platformEnum } from "./enums";
 
 export const conversations = pgTable(
@@ -37,6 +37,7 @@ export const conversations = pgTable(
   },
   (table) => [
     index("conv_business_platform_idx").on(table.businessId, table.platform),
+    uniqueIndex("convo_business_thread_idx").on(table.businessId, table.threadId),
     unique("conv_thread_uq").on(
       table.businessId,
       table.platform,

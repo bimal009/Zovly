@@ -5,6 +5,7 @@ export const platformEnum = pgEnum("platform", [
   "facebook",
   "whatsapp",
   "tiktok",
+  "web"
 ]);
 
 export const messageDirectionEnum = pgEnum("message_direction", ["in", "out"]);

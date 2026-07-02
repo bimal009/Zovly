@@ -6,6 +6,7 @@ import {
   uuid,
   boolean,
   index,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { business } from "./business";
 import { conversations } from "./conversations";
@@ -35,31 +36,36 @@ export const messages = pgTable(
       .notNull()
       .references(() => business.id, { onDelete: "cascade" }),
 
-    direction: messageDirectionEnum("direction").notNull(), // in | out
-    sentBy: messageSenderEnum("sent_by"), // ai | human — null for inbound
+    direction: messageDirectionEnum("direction").notNull(),
+    sentBy: messageSenderEnum("sent_by"),
 
-    // Content — text or voice transcript
     content: text("content"),
 
-    // Media — ImageKit signed URL + type (image/video/audio/document)
     mediaUrl: text("media_url"),
     mediaType: messageMediaTypeEnum("media_type"),
 
-    // Vectorized flag — py-ml sets this true after embedding
-    isVectorized: boolean("is_vectorized").default(false).notNull(),
-    // messages table — add:
-    status: messageStatusEnum("status"), // null for inbound; set for outbound
-    errorMessage: text("error_message"), // failure reason when status = failed
+
+    status: messageStatusEnum("status"), 
+    errorMessage: text("error_message"), 
     sentToPlatformAt: timestamp("sent_to_platform_at"), // when Graph API accepted
-    platformMessageId: text("platform_message_id"), // Meta's returned message id
+    platformMessageId: text("platform_message_id"), // Meta's returned message id (mid)
+
+    deliveredAt: timestamp("delivered_at"), 
+    seenAt: timestamp("seen_at"), 
+
+    replyToMessageId: uuid("reply_to_message_id").references(
+      (): AnyPgColumn => messages.id,
+      { onDelete: "set null" }
+    ),
+
+    platformSenderId: text("platform_sender_id"),
 
     sentAt: timestamp("sent_at").defaultNow().notNull(),
   },
   (table) => [
-    // pull all messages for a conversation ordered by time
     index("msg_conversation_idx").on(table.conversationId),
-    // filter un-vectorized messages for the embedding worker
-    index("msg_vectorize_idx").on(table.businessId, table.isVectorized),
+    index("msg_platform_id_idx").on(table.platformMessageId),
+    index("msg_reply_to_idx").on(table.replyToMessageId),
   ],
 );
 
@@ -71,4 +77,9 @@ export type NewMessage = typeof messages.$inferInsert;
 export const messagesRelations = relations(messages, ({ one }) => ({
   conversation: one(conversations, { fields: [messages.conversationId], references: [conversations.id] }),
   business: one(business, { fields: [messages.businessId], references: [business.id] }),
+  replyTo: one(messages, {
+    fields: [messages.replyToMessageId],
+    references: [messages.id],
+    relationName: "replyTo",
+  }),
 }));

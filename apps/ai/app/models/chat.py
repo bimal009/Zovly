@@ -63,11 +63,55 @@ class ChatReplyRequest(BaseModel):
     business_id: str
     conversation_id: Optional[str] = None  # used by tools to record the active product
     message: str
-    active_product_id: Optional[str] = None  # product currently under discussion, if any
     context: ChatContext
 
 ChatReqModel = ChatReplyRequest
 
+
+class ChatIntentReqModel(BaseModel):
+    message: str
+    recent_turns: list[str] = Field(default_factory=list)
+
+
+
+
+
+
+IntentType = Literal[
+    "product_search",
+    "service_inquiry",
+    "event_inquiry",
+    "order_status",
+    "policy_faq",
+    "booking_confirm",
+    "cart_action",
+    "small_talk",
+    "complaint",
+    "unknown",
+]
+
+
+class ExtractedEntities(BaseModel):
+    item: Optional[str] = None
+    color: Optional[str] = None
+    size: Optional[str] = None
+    budget_min: Optional[float] = None
+    budget_max: Optional[float] = None
+    quantity: Optional[int] = None
+    date: Optional[str] = None
+    order_id: Optional[str] = None
+    product_ref: Optional[str] = None
+
+
+class SubIntent(BaseModel):
+    intent: IntentType
+    text: str
+    entities: ExtractedEntities = Field(default_factory=ExtractedEntities)
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
+class IntentExtractionResult(BaseModel):
+    sub_intents: list[SubIntent]
 
 class AgentReply(BaseModel):
     message: str = Field(description="The reply text to send to the customer, plain text, a few sentences max.")
